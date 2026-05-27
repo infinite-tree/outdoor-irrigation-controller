@@ -1,0 +1,48 @@
+#pragma once
+
+// WiFi
+#define WIFI_SSID           ""
+#define WIFI_PASSWORD       ""
+
+// Shared LAN settings
+#define LAN_GATEWAY_0       192
+#define LAN_GATEWAY_1       168
+#define LAN_GATEWAY_2       2
+#define LAN_GATEWAY_3       1
+
+#define LAN_SUBNET_0        255
+#define LAN_SUBNET_1        255
+#define LAN_SUBNET_2        255
+#define LAN_SUBNET_3        0
+
+#define LAN_DNS_PRIMARY_0   192
+#define LAN_DNS_PRIMARY_1   168
+#define LAN_DNS_PRIMARY_2   2
+#define LAN_DNS_PRIMARY_3   5
+
+// wifi_station device static IP
+#define STATION_STATIC_IP_0 192
+#define STATION_STATIC_IP_1 168
+#define STATION_STATIC_IP_2 2
+#define STATION_STATIC_IP_3 219
+
+// wifi_solenoid device static IP
+#define SOLENOID_STATIC_IP_0 192
+#define SOLENOID_STATIC_IP_1 168
+#define SOLENOID_STATIC_IP_2 2
+#define SOLENOID_STATIC_IP_3 218
+
+// Station uses this host to call the solenoid HTTP API
+#define SOLENOID_HTTP_HOST  "192.168.2.218"
+
+// InfluxDB (wifi_station only)
+#define INFLUX_DATABASE     "infinitestats"
+#define INFLUX_HOSTNAME     "stats.infinite-tree.com"
+#define INFLUX_USER         "sensor"
+#define INFLUX_PASSWORD     ""
+#define INFLUX_DELAY        300000
+
+// VFD fault alert (wifi_station only). POST JSON on new Frenic fault input.
+// Leave URL empty to disable remote notification.
+#define VFD_ALERT_URL         ""
+#define VFD_ERROR_SUMMARY     "Frenic Mini VFD fault"

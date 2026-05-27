@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Station</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <h1 class="hdr">Station</h1>
+
+    <section class="panel panel-now">
+      <div class="lbl">Now</div>
+      <div class="now-main" id="now-main">Loading…</div>
+      <div class="now-sub" id="now-sub"></div>
+      <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
+      <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section class="panel">
+      <div class="lbl panel-lbl">Last watering</div>
+      <table class="zone-table">
+        <thead>
+          <tr>
+            <th scope="col"></th>
+            <th scope="col">When</th>
+            <th scope="col">Duration</th>
+          </tr>
+        </thead>
+        <tbody id="last-table"></tbody>
+      </table>
+    </section>
+
+    <section class="panel ctrl" id="controls"></section>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

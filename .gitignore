@@ -1,0 +1,6 @@
+.pio/
+**/.pio/
+.vscode/
+lib/Config/Config.h
+*.swp
+*~
