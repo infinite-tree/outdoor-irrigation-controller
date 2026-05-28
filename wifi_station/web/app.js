@@ -1,5 +1,6 @@
 (function () {
   const POLL_MS = 3000;
+  let controlsRunning = null;
 
   const ZONE_ROWS = [
     ['Zone 1', 'z1'],
@@ -15,6 +16,11 @@
   }
 
   function renderControls(running) {
+    if (controlsRunning === running) {
+      return;
+    }
+    controlsRunning = running;
+
     const el = document.getElementById('controls');
     if (running) {
       el.innerHTML =

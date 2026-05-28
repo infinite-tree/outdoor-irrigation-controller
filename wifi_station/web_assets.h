@@ -82,6 +82,7 @@ static const size_t WEB_STYLE_CSS_LEN = sizeof(WEB_STYLE_CSS) - 1;
 
 static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
   const POLL_MS = 3000;
+  let controlsRunning = null;
 
   const ZONE_ROWS = [
     ['Zone 1', 'z1'],
@@ -97,6 +98,11 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
   }
 
   function renderControls(running) {
+    if (controlsRunning === running) {
+      return;
+    }
+    controlsRunning = running;
+
     const el = document.getElementById('controls');
     if (running) {
       el.innerHTML =
