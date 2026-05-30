@@ -63,7 +63,8 @@ SPIClass SDSPI(HSPI);
 
 #define REMOTE_PUMP_ON               LOW
 #define REMOTE_PUMP_OFF              HIGH
-#define REMOTE_SAMPLE_SIZE    10
+#define REMOTE_SAMPLE_SIZE           10
+#define REMOTE_DEBOUNCE_MS           500
 
 #define VFD_ERROR_ACTIVE             LOW
 #define VFD_ERROR_SAMPLE_SIZE        5
@@ -89,6 +90,8 @@ GxEPD_Class display(io, EDP_RSET_PIN, EDP_BUSY_PIN);
 
 
 bool remoteSignalOn = false;
+unsigned long remoteOnStableSince = 0;
+unsigned long remoteOffStableSince = 0;
 bool vfdErrorActive = false;
 byte currentZoneState = ZONES_OFF;
 
@@ -260,6 +263,46 @@ bool send_zone_command(byte zone_state) {
   
   http.end();
   return success;
+}
+
+bool read_remote_pump_input() {
+  int on_count = 0;
+  for (int i = 0; i < REMOTE_SAMPLE_SIZE; i++) {
+    if (digitalRead(PUMP_INPUT_PIN) == REMOTE_PUMP_ON) {
+      on_count++;
+    }
+    delayMicroseconds(800);
+  }
+  // Majority vote across ~8 ms catches AC-driven opto pulses; state changes
+  // still require REMOTE_DEBOUNCE_MS of stability.
+  return on_count > (REMOTE_SAMPLE_SIZE / 2);
+}
+
+void update_remote_pump_state() {
+  bool input_on = read_remote_pump_input();
+  unsigned long now = millis();
+
+  if (input_on) {
+    remoteOffStableSince = 0;
+    if (remoteOnStableSince == 0) {
+      remoteOnStableSince = now;
+    } else if (!remoteSignalOn && (now - remoteOnStableSince) >= REMOTE_DEBOUNCE_MS) {
+      remoteSignalOn = true;
+      Serial.println("REMOTE OFF -> ON");
+      update_vfd();
+      pendingDisplayUpdate = true;
+    }
+  } else {
+    remoteOnStableSince = 0;
+    if (remoteOffStableSince == 0) {
+      remoteOffStableSince = now;
+    } else if (remoteSignalOn && (now - remoteOffStableSince) >= REMOTE_DEBOUNCE_MS) {
+      remoteSignalOn = false;
+      Serial.println("REMOTE ON -> OFF");
+      update_vfd();
+      pendingDisplayUpdate = true;
+    }
+  }
 }
 
 bool read_vfd_error_input() {
@@ -635,27 +678,7 @@ void loop() {
     stop_timer();
   }
 
-  // Handle external input (remote pump)
-  // Debounce the input byt taking multiple readings spaced apart so t capture the AC signal
-  int remote_signal_on_count = 0;
-  for (int x = 0; x< REMOTE_SAMPLE_SIZE; x++) {
-    if (digitalRead(PUMP_INPUT_PIN) == REMOTE_PUMP_ON) remote_signal_on_count++;
-    delay(8);
-  }
-
-  if (!remoteSignalOn && remote_signal_on_count >= 1) {
-    remoteSignalOn = true;
-    Serial.print(remote_signal_on_count);
-    Serial.println(" REMOTE OFF -> ON");
-    update_vfd();
-    pendingDisplayUpdate = true;
-  } else if (remoteSignalOn && remote_signal_on_count < 1) {
-    remoteSignalOn = false;
-    Serial.print(remote_signal_on_count);
-    Serial.println(" REMOTE ON -> OFF");
-    update_vfd();
-    pendingDisplayUpdate = true;
-  }
+  update_remote_pump_state();
 
   bool vfd_error_now = read_vfd_error_input();
   if (!vfdErrorActive && vfd_error_now) {
