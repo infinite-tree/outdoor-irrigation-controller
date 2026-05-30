@@ -63,7 +63,8 @@ SPIClass SDSPI(HSPI);
 
 #define REMOTE_PUMP_ON               LOW
 #define REMOTE_PUMP_OFF              HIGH
-#define REMOTE_SAMPLE_SIZE    10
+#define REMOTE_SAMPLE_DELAY_MS       8
+#define REMOTE_SAMPLE_SIZE           20
 
 #define VFD_ERROR_ACTIVE             LOW
 #define VFD_ERROR_SAMPLE_SIZE        5
@@ -260,6 +261,19 @@ bool send_zone_command(byte zone_state) {
   
   http.end();
   return success;
+}
+
+bool read_remote_pump_input() {
+  int on_count = 0;
+  for (int i = 0; i < REMOTE_SAMPLE_SIZE; i++) {
+    if (digitalRead(PUMP_INPUT_PIN) == REMOTE_PUMP_ON) {
+      on_count++;
+    }
+    delay(REMOTE_SAMPLE_DELAY_MS);
+  }
+  // Majority over REMOTE_SAMPLE_DELAY_MS * REMOTE_SAMPLE_SIZE (~160 ms) spans
+  // ~8-10 AC cycles at 50/60 Hz when the opto is energized.
+  return on_count > (REMOTE_SAMPLE_SIZE / 2);
 }
 
 bool read_vfd_error_input() {
@@ -635,24 +649,16 @@ void loop() {
     stop_timer();
   }
 
-  // Handle external input (remote pump)
-  // Debounce the input byt taking multiple readings spaced apart so t capture the AC signal
-  int remote_signal_on_count = 0;
-  for (int x = 0; x< REMOTE_SAMPLE_SIZE; x++) {
-    if (digitalRead(PUMP_INPUT_PIN) == REMOTE_PUMP_ON) remote_signal_on_count++;
-    delay(8);
-  }
-
-  if (!remoteSignalOn && remote_signal_on_count >= 1) {
+  // Remote pump: majority vote across several AC cycles (see REMOTE_SAMPLE_*)
+  bool remote_on = read_remote_pump_input();
+  if (!remoteSignalOn && remote_on) {
     remoteSignalOn = true;
-    Serial.print(remote_signal_on_count);
-    Serial.println(" REMOTE OFF -> ON");
+    Serial.println("REMOTE OFF -> ON");
     update_vfd();
     pendingDisplayUpdate = true;
-  } else if (remoteSignalOn && remote_signal_on_count < 1) {
+  } else if (remoteSignalOn && !remote_on) {
     remoteSignalOn = false;
-    Serial.print(remote_signal_on_count);
-    Serial.println(" REMOTE ON -> OFF");
+    Serial.println("REMOTE ON -> OFF");
     update_vfd();
     pendingDisplayUpdate = true;
   }
