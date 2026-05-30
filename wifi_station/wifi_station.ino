@@ -63,8 +63,8 @@ SPIClass SDSPI(HSPI);
 
 #define REMOTE_PUMP_ON               LOW
 #define REMOTE_PUMP_OFF              HIGH
-#define REMOTE_SAMPLE_SIZE           10
-#define REMOTE_DEBOUNCE_MS           500
+#define REMOTE_SAMPLE_DELAY_MS       8
+#define REMOTE_SAMPLE_SIZE           20
 
 #define VFD_ERROR_ACTIVE             LOW
 #define VFD_ERROR_SAMPLE_SIZE        5
@@ -90,8 +90,6 @@ GxEPD_Class display(io, EDP_RSET_PIN, EDP_BUSY_PIN);
 
 
 bool remoteSignalOn = false;
-unsigned long remoteOnStableSince = 0;
-unsigned long remoteOffStableSince = 0;
 bool vfdErrorActive = false;
 byte currentZoneState = ZONES_OFF;
 
@@ -271,38 +269,11 @@ bool read_remote_pump_input() {
     if (digitalRead(PUMP_INPUT_PIN) == REMOTE_PUMP_ON) {
       on_count++;
     }
-    delayMicroseconds(800);
+    delay(REMOTE_SAMPLE_DELAY_MS);
   }
-  // Majority vote across ~8 ms catches AC-driven opto pulses; state changes
-  // still require REMOTE_DEBOUNCE_MS of stability.
+  // Majority over REMOTE_SAMPLE_DELAY_MS * REMOTE_SAMPLE_SIZE (~160 ms) spans
+  // ~8-10 AC cycles at 50/60 Hz when the opto is energized.
   return on_count > (REMOTE_SAMPLE_SIZE / 2);
-}
-
-void update_remote_pump_state() {
-  bool input_on = read_remote_pump_input();
-  unsigned long now = millis();
-
-  if (input_on) {
-    remoteOffStableSince = 0;
-    if (remoteOnStableSince == 0) {
-      remoteOnStableSince = now;
-    } else if (!remoteSignalOn && (now - remoteOnStableSince) >= REMOTE_DEBOUNCE_MS) {
-      remoteSignalOn = true;
-      Serial.println("REMOTE OFF -> ON");
-      update_vfd();
-      pendingDisplayUpdate = true;
-    }
-  } else {
-    remoteOnStableSince = 0;
-    if (remoteOffStableSince == 0) {
-      remoteOffStableSince = now;
-    } else if (remoteSignalOn && (now - remoteOffStableSince) >= REMOTE_DEBOUNCE_MS) {
-      remoteSignalOn = false;
-      Serial.println("REMOTE ON -> OFF");
-      update_vfd();
-      pendingDisplayUpdate = true;
-    }
-  }
 }
 
 bool read_vfd_error_input() {
@@ -678,7 +649,19 @@ void loop() {
     stop_timer();
   }
 
-  update_remote_pump_state();
+  // Remote pump: majority vote across several AC cycles (see REMOTE_SAMPLE_*)
+  bool remote_on = read_remote_pump_input();
+  if (!remoteSignalOn && remote_on) {
+    remoteSignalOn = true;
+    Serial.println("REMOTE OFF -> ON");
+    update_vfd();
+    pendingDisplayUpdate = true;
+  } else if (remoteSignalOn && !remote_on) {
+    remoteSignalOn = false;
+    Serial.println("REMOTE ON -> OFF");
+    update_vfd();
+    pendingDisplayUpdate = true;
+  }
 
   bool vfd_error_now = read_vfd_error_input();
   if (!vfdErrorActive && vfd_error_now) {
