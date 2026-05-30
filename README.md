@@ -27,6 +27,27 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `VFD_ALERT_URL` | wifi_station | POST target when Frenic fault input activates (empty = disabled) |
 | `VFD_ERROR_SUMMARY` | wifi_station | `error_summary` field in that POST body |
 
+### Pump / VFD SSR outputs (wifi_station)
+
+The station board drives two DC solid-state relays that enable the Frenic Mini VFD at half or full output:
+
+| GPIO | Define | Active state | Meaning |
+|------|--------|--------------|---------|
+| **42** | `HALF_PWR_OUTPUT_PIN` | HIGH | One zone or greenhouse |
+| **46** | `FULL_PWR_OUTPUT_PIN` | HIGH | Both zones or water cannon |
+
+These are on the **station** LilyGo (`.219` in the example config), not the solenoid board. The solenoid firmware uses the same pin numbers for valve drivers on a **second** board — do not wire pump SSRs to the solenoid unit.
+
+When a timer run is active, firmware energizes the SSRs from `timerMode` (what you selected on the web UI), not from the solenoid HTTP status. Check `/status` while watering: `"timer_running": true` and `"vfd"` should be `1` (half) or `2` (full). If `vfd` is `0` during a run, the UI sub-line will mention pump SSRs off.
+
+**If the UI shows watering but both SSR LEDs stay dark:**
+
+1. Confirm SSR control wires go to the **station** board GPIO 42 / 46 and share ground with the LilyGo.
+2. With a run active, measure each GPIO vs GND — expect ~3.3 V on one pin (42 for half, 46 for full).
+3. Open `http://<station-ip>/status` and read `"vfd"`. If it is 1 or 2 but SSRs stay off, suspect SSR input voltage (some modules want 5 V), failed SSRs, or wiring.
+4. If `"vfd"` is 0 while `"timer_running"` is true after updating firmware, capture serial log at 115200 baud.
+5. GPIO **45** is the remote pump sense input; GPIO **46** is a strapping pin — avoid pulling it high at power-on.
+
 ### VFD fault input (wifi_station)
 
 GPIO **40** (`VFD_ERROR_INPUT_PIN`) — `INPUT_PULLUP`, active **LOW** when the PC817 pulls low (Frenic Mini fault relay on terminals **30A–30C**, normal logic).

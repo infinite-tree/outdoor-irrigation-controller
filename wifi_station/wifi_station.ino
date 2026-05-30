@@ -316,24 +316,37 @@ bool send_vfd_error_alert(const char *summary, const char *datetime) {
   return success;
 }
 
-void update_vfd() {
-  int  vfd_power = 0;
+static int vfd_power_for_mode(byte mode) {
+  if (mode == ZONE1_ON || mode == ZONE2_ON || mode == GREENHOUSE_ON) {
+    return 1;
+  }
+  if (mode == All_ZONES_ON || mode == CANON_ON) {
+    return 2;
+  }
+  return 0;
+}
 
-  // if the system is trying to stop, then don't pay attention to the current state becuase the VFD needs to stop first
+void update_vfd() {
+  int vfd_power = 0;
+
+  // Energize pump SSRs from the active timer mode (web selection), not
+  // currentZoneState, which only reflects the last solenoid HTTP result.
   if (timerRunning) {
-    if (currentZoneState == ZONE1_ON) vfd_power++;
-    if (currentZoneState == ZONE2_ON) vfd_power++;
-    if (currentZoneState == GREENHOUSE_ON) vfd_power++;
-    if (currentZoneState == All_ZONES_ON) vfd_power = 2;
-    if (currentZoneState == CANON_ON) vfd_power = 2;
+    vfd_power = vfd_power_for_mode(timerMode);
   }
 
   if (remoteSignalOn) {
     vfd_power++;
-  } 
+  }
 
-  
-  vfdMode = min(vfd_power, 2);
+  int newMode = min(vfd_power, 2);
+  if (newMode != vfdMode) {
+    Serial.print("VFD SSR mode ");
+    Serial.print(vfdMode);
+    Serial.print(" -> ");
+    Serial.println(newMode);
+  }
+  vfdMode = newMode;
   if (vfdMode == 1) {
     // 1 activity, half power
     digitalWrite(HALF_PWR_OUTPUT_PIN, RELAY_ON);

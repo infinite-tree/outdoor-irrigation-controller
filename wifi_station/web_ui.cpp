@@ -129,6 +129,9 @@ static void web_handle_get_status() {
     }
     doc["now_main"] = nowMain;
     String nowSub = String(duration) + " total · Pump " + vfd_label(vfdMode);
+    if (vfdMode == 0 && !remoteSignalOn) {
+      nowSub = "Pump SSRs off — check GPIO 42/46 wiring · " + nowSub;
+    }
     if (vfdErrorActive) {
       nowSub = "VFD drive error · " + nowSub;
     }
@@ -136,6 +139,7 @@ static void web_handle_get_status() {
       nowSub += " · Remote on";
     }
     doc["now_sub"] = nowSub;
+    doc["pump_ssr_active"] = (vfdMode > 0);
     doc["remaining_seconds"] = (timerDuration - (millis() - timerStartTime)) / MILLISECONDS;
     doc["duration_seconds"] = timerDuration / MILLISECONDS;
     doc["watering_started_at"] = activeRunStartEpoch;
