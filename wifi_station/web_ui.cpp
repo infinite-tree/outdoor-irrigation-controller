@@ -173,6 +173,11 @@ static void web_handle_start_timer() {
     int zone = server.arg("zone").toInt();
 
     if (duration > 0 && (zone == ZONE1_ON || zone == ZONE2_ON || zone == GREENHOUSE_ON || zone == All_ZONES_ON || zone == CANON_ON)) {
+      if (timerRunning) {
+        server.send(409, "text/plain", "Already watering");
+        return;
+      }
+      webStopTimer = false;
       timerDuration = duration * 60 * MILLISECONDS;
       timerMode = zone;
       webStartTimer = true;
@@ -187,6 +192,7 @@ static void web_handle_start_timer() {
 }
 
 static void web_handle_stop_timer() {
+  webStartTimer = false;
   webStopTimer = true;
   server.sendHeader("Location", "/message.html?m=Watering%20stopped", true);
   server.send(302, "text/plain", "");
