@@ -97,6 +97,20 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     return '<div class="chip ' + cls + '"><b>' + label + '</b>' + word + '</div>';
   }
 
+  function bindControlForm(el, running) {
+    const form = el.querySelector('form');
+    if (!form) {
+      return;
+    }
+    form.addEventListener('submit', function () {
+      const btn = form.querySelector('[type=submit]');
+      if (btn) {
+        btn.disabled = true;
+        btn.value = running ? 'Stopping…' : 'Starting…';
+      }
+    });
+  }
+
   function renderControls(running) {
     if (controlsRunning === running) {
       return;
@@ -109,6 +123,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
         '<form action="/stop" method="post">' +
         '<input class="btn btn-stop" type="submit" value="Stop watering">' +
         '</form>';
+      bindControlForm(el, true);
       return;
     }
     el.innerHTML =
@@ -124,6 +139,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       '</select></div>' +
       '<input class="btn" type="submit" value="Start watering">' +
       '</form>';
+    bindControlForm(el, false);
   }
 
   function renderLastTable(history) {

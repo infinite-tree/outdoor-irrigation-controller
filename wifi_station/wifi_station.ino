@@ -677,13 +677,20 @@ void loop() {
     Serial.println("VFD error cleared");
   }
 
-  // Handle web events outside of the webserver response path
-  if (webStartTimer && !timerRunning) {
+  // Handle web events outside of the webserver response path.
+  // Always clear deferred flags so a stop request while idle (or a start while
+  // already running) cannot stick around and cancel the next start.
+  if (webStartTimer) {
     webStartTimer = false;
-    start_timer();
-  } else if (webStopTimer && timerRunning) {
+    if (!timerRunning) {
+      start_timer();
+    }
+  }
+  if (webStopTimer) {
     webStopTimer = false;
-    stop_timer();
+    if (timerRunning) {
+      stop_timer();
+    }
   }
 
   if (millis() - wifiConnectionUpdate >  WIFI_CONNECTION_MILLIS) {
