@@ -3,6 +3,7 @@
 
   let pending = { z1: '0', z2: '0' };
   let saving = false;
+  let lastServerZones = null;
 
   function chipHtml(label, on) {
     const cls = on ? 'chip-on' : 'chip-off';
@@ -21,6 +22,7 @@
     const z = s.zones || {};
     pending.z1 = z.z1 === 'on' ? '1' : '0';
     pending.z2 = z.z2 === 'on' ? '1' : '0';
+    lastServerZones = { z1: z.z1, z2: z.z2 };
 
     document.getElementById('controls').innerHTML =
       '<form id="zone-form">' +
@@ -80,11 +82,15 @@
 
   function renderStatus(s) {
     renderChips(s);
+    const z = s.zones || {};
     if (!document.getElementById('zone-form')) {
       renderControls(s);
     } else if (!saving) {
-      document.getElementById('zone1').value = s.zones.z1 === 'on' ? '1' : '0';
-      document.getElementById('zone2').value = s.zones.z2 === 'on' ? '1' : '0';
+      if (!lastServerZones || lastServerZones.z1 !== z.z1 || lastServerZones.z2 !== z.z2) {
+        document.getElementById('zone1').value = z.z1 === 'on' ? '1' : '0';
+        document.getElementById('zone2').value = z.z2 === 'on' ? '1' : '0';
+        lastServerZones = { z1: z.z1, z2: z.z2 };
+      }
     }
   }
 
