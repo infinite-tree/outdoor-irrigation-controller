@@ -149,6 +149,8 @@ int vfdMode = 0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long wifiConnectionUpdate = 0;
 bool pendingDisplayUpdate = false;
+bool wifiReconnecting = false;
+unsigned long wifiReconnectStarted = 0;
 unsigned long lastInfluxSend = -3000000; // Track last InfluxDB send time
 InfluxArduino influx;
 
@@ -436,7 +438,7 @@ void stop_timer() {
   pendingDisplayUpdate = true;
 }
 
-void init_wifi() {
+bool wifi_connect(unsigned long timeout_ms) {
     Serial.print("Connecting to wifi ");
 
     if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, primaryDNS)) {
@@ -446,14 +448,25 @@ void init_wifi() {
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    unsigned long started = millis();
     while (WiFi.status() != WL_CONNECTED) {
+        if (timeout_ms > 0 && (millis() - started) >= timeout_ms) {
+            Serial.println("\nWiFi connect timeout");
+            return false;
+        }
         delay(500);
-        Serial.print (".");
+        Serial.print(".");
     }
     Serial.println("\nWiFi connected");
 
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
+    return true;
+}
+
+void init_wifi() {
+    wifi_connect(0);
 }
 
 void init_display() {
@@ -654,9 +667,9 @@ void setup() {
   setenv("TZ", MY_TZ, 1);
   tzset();
 
-  init_wifi();
-  schedule_init();
+  wifi_connect(30000);
   web_server_init();
+  schedule_init();
   setupInflux();
   update_display_status(false, false, ZONES_OFF);
 }
@@ -671,6 +684,7 @@ void loop() {
   }
 
   schedule_tick(timerRunning);
+  schedule_process_pending();
 
   // Remote pump: majority vote across several AC cycles (see REMOTE_SAMPLE_*)
   bool remote_on = read_remote_pump_input();
@@ -716,15 +730,26 @@ void loop() {
     }
   }
 
-  if (millis() - wifiConnectionUpdate >  WIFI_CONNECTION_MILLIS) {
+  if (millis() - wifiConnectionUpdate > WIFI_CONNECTION_MILLIS) {
     wifiConnectionUpdate = millis();
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("ERROR: Wifi disconnected!");
-      server.close();
-      WiFi.disconnect();
-      init_wifi();
-      web_server_init();
+      if (!wifiReconnecting) {
+        Serial.println("ERROR: Wifi disconnected, retrying...");
+        WiFi.disconnect();
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        wifiReconnecting = true;
+        wifiReconnectStarted = millis();
+      }
+    } else if (wifiReconnecting) {
+      wifiReconnecting = false;
+      Serial.println("WiFi reconnected");
+      Serial.println(WiFi.localIP());
     }
+  }
+
+  if (wifiReconnecting && millis() - wifiReconnectStarted > 30000) {
+    Serial.println("WiFi retry timeout, will try again");
+    wifiReconnecting = false;
   }
 
   // Update the display

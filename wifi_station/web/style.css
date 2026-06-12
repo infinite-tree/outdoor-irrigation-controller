@@ -1,19 +1,20 @@
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.35;color:#1a1a1a;background:#e8ecf1;-webkit-text-size-adjust:100%}
-.app{height:100dvh;max-width:26rem;margin:0 auto;padding:8px 10px;padding:max(8px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.app{min-height:100dvh;max-width:26rem;margin:0 auto;padding:8px 10px;padding:max(8px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:8px;overflow:auto}
 .hidden{display:none!important}
 .hdr{font-size:1.15rem;font-weight:700;color:#0056b3;text-align:center;margin:0}
 .tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .tab{min-height:40px;border:1px solid #c8d4e0;border-radius:9px;background:#fff;color:#0056b3;font-size:.92rem;font-weight:700;cursor:pointer;-webkit-appearance:none}
 .tab.active{background:#0056b3;border-color:#0056b3;color:#fff}
-.tab-panel{display:none;flex:1;min-height:0;flex-direction:column;gap:8px;overflow:auto}
+.tab-panel{display:none;flex:1 1 auto;min-height:12rem;flex-direction:column;gap:8px;overflow:visible}
 .tab-panel.active{display:flex}
 .panel{background:#fff;border-radius:10px;padding:10px 12px;box-shadow:0 1px 3px rgba(0,0,0,.07)}
 .panel-now{background:linear-gradient(145deg,#0056b3,#0074c2);color:#fff}
 .lbl{opacity:.85;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .panel-lbl{color:#666;margin-bottom:6px}
 .panel-now .lbl{color:rgba(255,255,255,.9)}
+.now-clock{text-transform:none;letter-spacing:normal;font-size:.78rem;font-weight:600}
 .now-main{font-size:1.2rem;font-weight:700;margin:2px 0;font-variant-numeric:tabular-nums}
 .now-sub{font-size:.82rem;opacity:.92}
 .next-run{margin-top:6px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.14);font-size:.8rem;line-height:1.3}
@@ -35,15 +36,30 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .ctrl-row{display:flex;gap:6px}
 .ctrl-row input,.ctrl-row select{flex:1;min-width:0;min-height:42px;padding:8px 10px;font-size:16px;border:1px solid #ccc;border-radius:8px;background:#fff}
 .btn{width:100%;min-height:44px;border:none;border-radius:9px;font-size:1rem;font-weight:700;color:#fff;background:#0056b3;cursor:pointer;-webkit-appearance:none}
+.btn:disabled{opacity:.45;cursor:not-allowed}
 .btn-stop{background:#b02a37}
-.btn-secondary{background:#5c6f82;margin-top:6px}
+.btn-add{background:#fff;color:#0056b3;border:2px solid #0056b3;margin-top:6px}
 .panel-schedules{display:flex;flex-direction:column;gap:8px}
 .sched-head{display:flex;flex-direction:column;gap:4px}
 .sched-msg{font-size:.8rem;font-weight:600;border-radius:8px;padding:7px 10px}
 .sched-msg.ok{background:#d4edda;color:#155724}
 .sched-msg.err{background:#f8d7da;color:#721c24}
-.sched-list{display:flex;flex-direction:column;gap:8px}
+.sched-list{display:flex;flex-direction:column}
 .sched-empty{margin:0;font-size:.85rem;color:#666;text-align:center;padding:12px 4px}
+.sched-table{width:100%;border-collapse:collapse;font-size:.78rem}
+.sched-table tbody tr{border-top:1px solid #eee}
+.sched-table tbody tr:first-child{border-top:none}
+.sched-row-btn{display:block;width:100%;text-align:left;padding:9px 2px;background:none;border:none;font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.sched-row-btn.active{background:#e8f1fb;border-radius:8px}
+.sched-row-btn:disabled{opacity:.45;cursor:not-allowed}
+.sched-row-line{line-height:1.4;font-size:.78rem}
+.sched-row-main{font-weight:500;color:#333}
+.sched-row-main .zone{font-weight:700;color:#0056b3}
+.sched-sep{margin:0 5px;color:#bbb;font-weight:400}
+.sched-time{color:#555;white-space:nowrap}
+.sched-edit{border-top:1px solid #e2e8f0;padding-top:10px;margin-top:2px}
+.sched-edit-hdr{font-size:.78rem;font-weight:700;color:#555;margin-bottom:4px}
+.sched-edit-note{margin:0 0 8px;font-size:.75rem;color:#666}
 .sched-card{border:1px solid #e2e8f0;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;background:#fafbfd}
 .sched-row{display:flex;gap:6px;align-items:center}
 .sched-row label{flex:0 0 4.5rem;font-size:.78rem;font-weight:600;color:#555}
@@ -58,3 +74,7 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .day-chip input:checked+span{background:#0056b3;border-color:#0056b3;color:#fff}
 .freq-panel.hidden{display:none}
 .btn-delete{min-height:38px;border:1px solid #e6b4b9;border-radius:8px;background:#fff;color:#b02a37;font-size:.85rem;font-weight:700;cursor:pointer;-webkit-appearance:none}
+.btn-done{min-height:38px;border:1px solid #c8d4e0;border-radius:8px;background:#fff;color:#0056b3;font-size:.85rem;font-weight:700;cursor:pointer;-webkit-appearance:none}
+.sched-edit-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.sched-edit-actions .btn-save{grid-column:1/-1}
+.btn-add:disabled{opacity:.45;cursor:not-allowed}

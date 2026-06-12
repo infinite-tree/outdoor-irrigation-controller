@@ -35,6 +35,7 @@ size_t schedule_count();
 const WaterSchedule *schedule_get(size_t index);
 bool schedule_replace_all(const char *jsonBody, String &errorOut);
 void schedule_tick(bool timerRunning);
+void schedule_process_pending();
 void schedule_get_next(NextScheduledInfo &info);
 void schedule_append_status_json(JsonDocument &doc);
 void schedule_append_list_json(JsonArray &arr);

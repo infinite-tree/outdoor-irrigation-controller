@@ -9,6 +9,25 @@ static Preferences schedulePrefs;
 static WaterSchedule schedules[MAX_SCHEDULES];
 static size_t scheduleCount = 0;
 static int lastCheckedMinuteKey = -1;
+static bool schedulePersistPending = false;
+static NextScheduledInfo cachedNext;
+static time_t cachedNextComputedAt = 0;
+
+static void schedule_invalidate_cache() {
+  cachedNextComputedAt = 0;
+}
+
+static void schedule_zone_label_buf(uint8_t zone, char *buffer, size_t buflen) {
+  const char *label = "Unknown";
+  switch (zone) {
+    case ZONE1_ON: label = "Zone 1"; break;
+    case ZONE2_ON: label = "Zone 2"; break;
+    case GREENHOUSE_ON: label = "Greenhouse"; break;
+    case All_ZONES_ON: label = "Zones 1 & 2"; break;
+    case CANON_ON: label = "Water cannon"; break;
+  }
+  snprintf(buffer, buflen, "%s", label);
+}
 
 static bool time_is_valid() {
   time_t now;
@@ -145,53 +164,81 @@ static bool schedule_due_now(const WaterSchedule &sched, time_t now, const struc
   return schedule_slot_due(sched, nowTm, slotStart);
 }
 
-static time_t schedule_next_after(const WaterSchedule &sched, time_t afterEpoch) {
-  if (!schedule_zone_valid(sched.zone) || sched.durationMin == 0) {
-    return 0;
-  }
-  if (sched.freqType == SCHED_FREQ_WEEKLY && sched.weekdays == 0) {
-    return 0;
-  }
-  if (sched.freqType == SCHED_FREQ_INTERVAL && sched.intervalDays < 1) {
-    return 0;
-  }
+static time_t slot_on_day(const struct tm &dayBase, int hour, int minute) {
+  struct tm tm = dayBase;
+  tm.tm_hour = hour;
+  tm.tm_min = minute;
+  tm.tm_sec = 0;
+  tm.tm_isdst = -1;
+  return mktime(&tm);
+}
 
-  struct tm cursor;
-  localtime_r(&afterEpoch, &cursor);
-  cursor.tm_sec = 0;
-  cursor.tm_isdst = -1;
+static time_t schedule_next_weekly(const WaterSchedule &sched, time_t afterEpoch) {
+  struct tm base;
+  localtime_r(&afterEpoch, &base);
 
-  for (int dayOffset = 0; dayOffset < 400; dayOffset++) {
-    struct tm dayTm = cursor;
+  for (int dayOffset = 0; dayOffset < 8; dayOffset++) {
+    struct tm dayTm = base;
     dayTm.tm_mday += dayOffset;
-    dayTm.tm_hour = sched.hour;
-    dayTm.tm_min = sched.minute;
-    dayTm.tm_sec = 0;
-    dayTm.tm_isdst = -1;
-    time_t slotStart = mktime(&dayTm);
+    time_t slotStart = slot_on_day(dayTm, sched.hour, sched.minute);
     if (slotStart <= afterEpoch) {
       continue;
     }
 
     struct tm slotTm;
     localtime_r(&slotStart, &slotTm);
-
-    if (sched.freqType == SCHED_FREQ_WEEKLY) {
-      if (!weekday_matches(sched.weekdays, slotTm.tm_wday)) {
-        continue;
-      }
-      return slotStart;
-    }
-
-    time_t todayStart = start_of_local_day(slotStart);
-    if (sched.lastFiredSlot == 0) {
-      return slotStart;
-    }
-    if (calendar_days_between(sched.lastFiredSlot, todayStart) >= sched.intervalDays) {
+    if (weekday_matches(sched.weekdays, slotTm.tm_wday)) {
       return slotStart;
     }
   }
 
+  return 0;
+}
+
+static time_t schedule_next_interval(const WaterSchedule &sched, time_t afterEpoch) {
+  struct tm base;
+  localtime_r(&afterEpoch, &base);
+
+  if (sched.lastFiredSlot == 0) {
+    time_t todaySlot = slot_on_day(base, sched.hour, sched.minute);
+    if (todaySlot > afterEpoch) {
+      return todaySlot;
+    }
+    struct tm tomorrow = base;
+    tomorrow.tm_mday += 1;
+    return slot_on_day(tomorrow, sched.hour, sched.minute);
+  }
+
+  time_t nextDay = start_of_local_day(sched.lastFiredSlot);
+  for (int attempt = 0; attempt < 400; attempt++) {
+    nextDay += (time_t)sched.intervalDays * 86400;
+    struct tm dayTm;
+    localtime_r(&nextDay, &dayTm);
+    time_t slotStart = slot_on_day(dayTm, sched.hour, sched.minute);
+    if (slotStart > afterEpoch) {
+      return slotStart;
+    }
+  }
+
+  return 0;
+}
+
+static time_t schedule_next_after(const WaterSchedule &sched, time_t afterEpoch) {
+  if (!schedule_zone_valid(sched.zone) || sched.durationMin == 0) {
+    return 0;
+  }
+  if (sched.freqType == SCHED_FREQ_WEEKLY) {
+    if (sched.weekdays == 0) {
+      return 0;
+    }
+    return schedule_next_weekly(sched, afterEpoch);
+  }
+  if (sched.freqType == SCHED_FREQ_INTERVAL) {
+    if (sched.intervalDays < 1) {
+      return 0;
+    }
+    return schedule_next_interval(sched, afterEpoch);
+  }
   return 0;
 }
 
@@ -224,7 +271,20 @@ static void schedule_persist() {
 
   String json;
   serializeJson(doc, json);
+  if (json.isEmpty() && scheduleCount > 0) {
+    Serial.println("schedule_persist: serialize failed");
+    return;
+  }
   schedulePrefs.putString("data", json);
+  schedule_invalidate_cache();
+}
+
+void schedule_process_pending() {
+  if (!schedulePersistPending) {
+    return;
+  }
+  schedulePersistPending = false;
+  schedule_persist();
 }
 
 static void schedule_load() {
@@ -235,8 +295,16 @@ static void schedule_load() {
   }
 
   JsonDocument doc;
-  if (deserializeJson(doc, json)) {
-    Serial.println("schedule_load: invalid JSON");
+  DeserializationError err = deserializeJson(doc, json);
+  if (err) {
+    Serial.println("schedule_load: invalid JSON, clearing saved schedules");
+    schedulePrefs.remove("data");
+    return;
+  }
+
+  if (!doc.is<JsonArray>()) {
+    Serial.println("schedule_load: expected array, clearing saved schedules");
+    schedulePrefs.remove("data");
     return;
   }
 
@@ -255,7 +323,19 @@ static void schedule_load() {
     const char *freq = row["freq"] | "weekly";
     s.freqType = (strcmp(freq, "interval") == 0) ? SCHED_FREQ_INTERVAL : SCHED_FREQ_WEEKLY;
     s.intervalDays = row["interval_days"] | 1;
-    s.weekdays = row["weekdays"] | 0;
+    if (row["weekdays"].is<JsonArray>()) {
+      uint8_t mask = 0;
+      int idx = 0;
+      for (JsonVariant v : row["weekdays"].as<JsonArray>()) {
+        if (idx < 7 && v.as<int>() != 0) {
+          mask |= (1 << idx);
+        }
+        idx++;
+      }
+      s.weekdays = mask;
+    } else {
+      s.weekdays = row["weekdays"] | 0;
+    }
     s.lastFiredSlot = row["last_fired_slot"] | 0;
 
     if (!schedule_zone_valid(s.zone) || s.durationMin == 0 || s.hour > 23 || s.minute > 59) {
@@ -391,7 +471,8 @@ bool schedule_replace_all(const char *jsonBody, String &errorOut) {
   for (size_t i = 0; i < scheduleCount; i++) {
     schedules[i] = next[i];
   }
-  schedule_persist();
+  schedule_invalidate_cache();
+  schedulePersistPending = true;
   return true;
 }
 
@@ -407,6 +488,10 @@ void schedule_get_next(NextScheduledInfo &info) {
 
   time_t now;
   time(&now);
+  if (cachedNextComputedAt > 0 && (now - cachedNextComputedAt) < 300) {
+    info = cachedNext;
+    return;
+  }
 
   time_t best = 0;
   size_t bestIndex = 0;
@@ -422,20 +507,20 @@ void schedule_get_next(NextScheduledInfo &info) {
   }
 
   if (best == 0) {
+    cachedNext = info;
+    cachedNextComputedAt = now;
     return;
   }
 
   const WaterSchedule &s = schedules[bestIndex];
   info.valid = true;
   info.epoch = best;
-  snprintf(
-    info.label,
-    sizeof(info.label),
-    "%s · %u min",
-    schedule_zone_label(s.zone).c_str(),
-    s.durationMin
-  );
+  char zoneLabel[24];
+  schedule_zone_label_buf(s.zone, zoneLabel, sizeof(zoneLabel));
+  snprintf(info.label, sizeof(info.label), "%s · %u min", zoneLabel, s.durationMin);
   format_local_when(best, info.when, sizeof(info.when));
+  cachedNext = info;
+  cachedNextComputedAt = now;
 }
 
 void schedule_tick(bool timerRunning) {
@@ -501,6 +586,11 @@ void schedule_append_status_json(JsonDocument &doc) {
 
 void schedule_append_list_json(JsonArray &arr) {
   for (size_t i = 0; i < scheduleCount; i++) {
-    schedule_json_row(schedules[i], arr.add<JsonObject>());
+    JsonObject row = arr.add<JsonObject>();
+    if (row.isNull()) {
+      Serial.println("schedule_append_list_json: out of memory");
+      return;
+    }
+    schedule_json_row(schedules[i], row);
   }
 }

@@ -106,11 +106,57 @@ static void web_handle_message() {
   web_serve_progmem("text/html", WEB_MESSAGE_HTML);
 }
 
+static void format_clock_label(char *buffer, size_t buflen) {
+  time_t now;
+  time(&now);
+  struct tm tm;
+  localtime_r(&now, &tm);
+
+  if (tm.tm_year < 120) {
+    snprintf(buffer, buflen, "—");
+    return;
+  }
+
+  static const char *DAYS[] = {
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
+  };
+  static const char *MONTHS[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  };
+
+  const char *suffix = (tm.tm_hour >= 12) ? "pm" : "am";
+  int hour12 = tm.tm_hour % 12;
+  if (hour12 == 0) {
+    hour12 = 12;
+  }
+
+  snprintf(
+    buffer,
+    buflen,
+    "%s, %s %d · %d:%02d %s",
+    DAYS[tm.tm_wday],
+    MONTHS[tm.tm_mon],
+    tm.tm_mday,
+    hour12,
+    tm.tm_min,
+    suffix
+  );
+}
+
 static void web_handle_get_status() {
   char remaining[100];
   char duration[100];
+  char nowMain[160];
+  char nowSub[160];
+  char clockLabel[64];
 
-  JsonDocument doc;
+  static JsonDocument doc;
+  doc.clear();
+
+  format_clock_label(clockLabel, sizeof(clockLabel));
+  doc["clock"] = clockLabel;
+
   doc["timer_running"] = timerRunning;
   doc["solenoid_error"] = (currentZoneState == ZONE_ERROR);
   doc["vfd_error"] = vfdErrorActive;
@@ -124,31 +170,39 @@ static void web_handle_get_status() {
   if (timerRunning) {
     format_millis(timerDuration - (millis() - timerStartTime), remaining);
     format_millis(timerDuration, duration);
-    String nowMain = mode_label(timerMode) + " · " + remaining + " left";
     if (vfdErrorActive) {
-      nowMain = "VFD fault · " + nowMain;
+      snprintf(nowMain, sizeof(nowMain), "VFD fault · %s · %s left", mode_label(timerMode).c_str(), remaining);
+    } else {
+      snprintf(nowMain, sizeof(nowMain), "%s · %s left", mode_label(timerMode).c_str(), remaining);
     }
-    doc["now_main"] = nowMain;
-    String nowSub = String(duration) + " total · Pump " + vfd_label(vfdMode);
     if (vfdErrorActive) {
-      nowSub = "VFD drive error · " + nowSub;
+      snprintf(nowSub, sizeof(nowSub), "VFD drive error · %s total · Pump %s", duration, vfd_label(vfdMode).c_str());
+    } else {
+      snprintf(nowSub, sizeof(nowSub), "%s total · Pump %s", duration, vfd_label(vfdMode).c_str());
     }
     if (remoteSignalOn) {
-      nowSub += " · Remote on";
+      strlcat(nowSub, " · Remote on", sizeof(nowSub));
     }
+    doc["now_main"] = nowMain;
     doc["now_sub"] = nowSub;
     doc["remaining_seconds"] = (timerDuration - (millis() - timerStartTime)) / MILLISECONDS;
     doc["duration_seconds"] = timerDuration / MILLISECONDS;
     doc["watering_started_at"] = activeRunStartEpoch;
   } else {
-    doc["now_main"] = vfdErrorActive ? "VFD fault" : "Not watering";
-    String nowSub = "Pump " + vfd_label(vfdMode);
     if (vfdErrorActive) {
-      nowSub = "VFD drive error · " + nowSub;
+      snprintf(nowMain, sizeof(nowMain), "VFD fault");
+    } else {
+      snprintf(nowMain, sizeof(nowMain), "Not watering");
+    }
+    if (vfdErrorActive) {
+      snprintf(nowSub, sizeof(nowSub), "VFD drive error · Pump %s", vfd_label(vfdMode).c_str());
+    } else {
+      snprintf(nowSub, sizeof(nowSub), "Pump %s", vfd_label(vfdMode).c_str());
     }
     if (remoteSignalOn) {
-      nowSub += " · Remote on";
+      strlcat(nowSub, " · Remote on", sizeof(nowSub));
     }
+    doc["now_main"] = nowMain;
     doc["now_sub"] = nowSub;
   }
 
@@ -165,9 +219,13 @@ static void web_handle_get_status() {
 
   schedule_append_status_json(doc);
 
-  String jsonString;
-  serializeJson(doc, jsonString);
-  server.send(200, "application/json", jsonString);
+  static char jsonBuffer[3072];
+  size_t jsonLen = serializeJson(doc, jsonBuffer, sizeof(jsonBuffer));
+  if (jsonLen == 0 || jsonLen >= sizeof(jsonBuffer)) {
+    server.send(500, "text/plain", "Status JSON too large");
+    return;
+  }
+  server.send(200, "application/json", jsonBuffer);
 }
 
 static void web_handle_start_timer() {
@@ -202,33 +260,34 @@ static void web_handle_stop_timer() {
 }
 
 static void web_handle_get_schedules() {
-  JsonDocument doc;
+  static JsonDocument doc;
+  doc.clear();
   JsonArray arr = doc["schedules"].to<JsonArray>();
   schedule_append_list_json(arr);
 
-  String jsonString;
-  serializeJson(doc, jsonString);
-  server.send(200, "application/json", jsonString);
+  static char jsonBuffer[2048];
+  size_t jsonLen = serializeJson(doc, jsonBuffer, sizeof(jsonBuffer));
+  if (jsonLen == 0 || jsonLen >= sizeof(jsonBuffer)) {
+    server.send(500, "text/plain", "Failed to encode schedules");
+    return;
+  }
+  server.send(200, "application/json", jsonBuffer);
 }
 
 static void web_handle_put_schedules() {
+  if (!server.hasArg("plain")) {
+    server.send(400, "text/plain", "Missing body");
+    return;
+  }
+
   String body = server.arg("plain");
   if (body.isEmpty()) {
     server.send(400, "text/plain", "Missing body");
     return;
   }
 
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, body);
-  if (err || !doc.is<JsonArray>()) {
-    server.send(400, "text/plain", "Expected JSON array");
-    return;
-  }
-
-  String serialized;
-  serializeJson(doc, serialized);
   String errorOut;
-  if (!schedule_replace_all(serialized.c_str(), errorOut)) {
+  if (!schedule_replace_all(body.c_str(), errorOut)) {
     server.send(400, "text/plain", errorOut);
     return;
   }
@@ -236,18 +295,30 @@ static void web_handle_put_schedules() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+static bool webRoutesRegistered = false;
+static bool webServerStarted = false;
+
 void web_server_init() {
+  if (!webRoutesRegistered) {
+    server.on("/", web_handle_index);
+    server.on("/index.html", web_handle_index);
+    server.on("/style.css", web_handle_style);
+    server.on("/app.js", web_handle_app_js);
+    server.on("/message.html", web_handle_message);
+    server.on("/status", HTTP_GET, web_handle_get_status);
+    server.on("/start", HTTP_POST, web_handle_start_timer);
+    server.on("/stop", HTTP_POST, web_handle_stop_timer);
+    server.on("/schedules", HTTP_GET, web_handle_get_schedules);
+    server.on("/schedules", HTTP_PUT, web_handle_put_schedules);
+    webRoutesRegistered = true;
+  }
+
+  if (webServerStarted) {
+    return;
+  }
+
   Serial.print("Starting webserver ...");
-  server.on("/", web_handle_index);
-  server.on("/index.html", web_handle_index);
-  server.on("/style.css", web_handle_style);
-  server.on("/app.js", web_handle_app_js);
-  server.on("/message.html", web_handle_message);
-  server.on("/status", HTTP_GET, web_handle_get_status);
-  server.on("/start", HTTP_POST, web_handle_start_timer);
-  server.on("/stop", HTTP_POST, web_handle_stop_timer);
-  server.on("/schedules", HTTP_GET, web_handle_get_schedules);
-  server.on("/schedules", HTTP_PUT, web_handle_put_schedules);
   server.begin();
+  webServerStarted = true;
   Serial.println("HTTP server started");
 }

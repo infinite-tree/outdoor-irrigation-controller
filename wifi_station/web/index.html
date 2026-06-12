@@ -17,7 +17,7 @@
 
     <div class="tab-panel active" id="panel-now">
       <section class="panel panel-now">
-        <div class="lbl">Now</div>
+        <div class="lbl now-clock" id="now-clock">—</div>
         <div class="now-main" id="now-main">Loading…</div>
         <div class="now-sub" id="now-sub"></div>
         <div class="next-run hidden" id="next-run"></div>
@@ -50,8 +50,8 @@
           <div class="sched-msg hidden" id="sched-msg"></div>
         </div>
         <div class="sched-list" id="sched-list"></div>
-        <button type="button" class="btn btn-secondary" id="add-schedule">Add schedule</button>
-        <button type="button" class="btn" id="save-schedules">Save schedules</button>
+        <div class="sched-edit hidden" id="sched-edit"></div>
+        <button type="button" class="btn btn-add" id="add-schedule">Add schedule</button>
       </section>
     </div>
   </div>
