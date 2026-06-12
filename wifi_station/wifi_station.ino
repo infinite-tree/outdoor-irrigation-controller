@@ -76,6 +76,12 @@ SPIClass SDSPI(HSPI);
 #define DISPLAY_UPDATE_MILLIS 60000
 #define WIFI_CONNECTION_MILLIS  3000
 
+// Solenoid HTTP client: e-paper refresh can block the solenoid web server for several seconds.
+#define SOLENOID_HTTP_TIMEOUT_MS      15000
+#define SOLENOID_HTTP_CONNECT_MS      5000
+#define SOLENOID_HTTP_RETRY_COUNT     3
+#define SOLENOID_HTTP_RETRY_DELAY_MS  750
+
 /* Configuration of NTP */
 // choose the best fitting NTP server pool for your country
 #define MY_NTP_SERVER "pool.ntp.org"
@@ -222,14 +228,9 @@ bool sendDatapointsToInflux() {
 
 
 bool send_zone_command(byte zone_state) {
-  HTTPClient http;
   String url = "http://" + String(SOLENOID_HTTP_HOST) + "/set_zone";
-  
-  http.begin(url);
-  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-  
   String postData = "";
-  
+
   // Map zone states to solenoid parameters
   if (zone_state == ZONE1_ON) {
     postData = "zone1=1&zone2=0";
@@ -240,27 +241,45 @@ bool send_zone_command(byte zone_state) {
   } else { // ZONES_OFF or any other state
     postData = "zone1=0&zone2=0";
   }
-  
-  Serial.print("Sending zone command: ");
-  Serial.println(postData);
-  
-  int httpResponseCode = http.POST(postData);
-  bool success = false;
-  
-  if (httpResponseCode == 200) {
-    String response = http.getString();
-    Serial.print("Zone command successful: ");
-    Serial.println(response);
-    success = true;
-    currentZoneState = zone_state;
-  } else {
-    Serial.print("Zone command failed with code: ");
-    Serial.println(httpResponseCode);
-    currentZoneState = ZONE_ERROR;
+
+  for (uint8_t attempt = 1; attempt <= SOLENOID_HTTP_RETRY_COUNT; attempt++) {
+    HTTPClient http;
+
+    http.begin(url);
+    http.setTimeout(SOLENOID_HTTP_TIMEOUT_MS);
+    http.setConnectTimeout(SOLENOID_HTTP_CONNECT_MS);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    Serial.printf("Sending zone command (attempt %u/%u): %s\n",
+                  attempt, SOLENOID_HTTP_RETRY_COUNT, postData.c_str());
+
+    int httpResponseCode = http.POST(postData);
+
+    if (httpResponseCode == 200) {
+      String response = http.getString();
+      Serial.print("Zone command successful: ");
+      Serial.println(response);
+      http.end();
+      currentZoneState = zone_state;
+      return true;
+    }
+
+    if (httpResponseCode < 0) {
+      Serial.printf("Zone command failed: %s (%d)\n",
+                    http.errorToString(httpResponseCode).c_str(), httpResponseCode);
+    } else {
+      Serial.printf("Zone command failed with HTTP code: %d\n", httpResponseCode);
+    }
+    http.end();
+
+    if (attempt < SOLENOID_HTTP_RETRY_COUNT) {
+      Serial.printf("Retrying solenoid command in %lu ms\n", SOLENOID_HTTP_RETRY_DELAY_MS);
+      delay(SOLENOID_HTTP_RETRY_DELAY_MS);
+    }
   }
-  
-  http.end();
-  return success;
+
+  currentZoneState = ZONE_ERROR;
+  return false;
 }
 
 bool read_remote_pump_input() {
