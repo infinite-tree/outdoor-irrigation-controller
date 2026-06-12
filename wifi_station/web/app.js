@@ -1,8 +1,13 @@
 (function () {
   const POLL_MS = 3000;
+  const STATUS_RETRY_ATTEMPTS = 4;
+  const STATUS_RETRY_DELAY_MS = 700;
+  const ACTION_POLL_MS = 500;
+  const ACTION_MAX_WAIT_MS = 45000;
   let controlsRunning = null;
   let schedules = [];
   let nextTempId = 1;
+  let actionInFlight = false;
 
   const ZONE_ROWS = [
     ['Zone 1', 'z1'],
@@ -45,17 +50,119 @@
     return html;
   }
 
+  function setNowMain(text) {
+    document.getElementById('now-main').textContent = text;
+  }
+
+  function fetchStatus() {
+    return fetch('/status').then(function (r) {
+      if (!r.ok) {
+        throw new Error('status');
+      }
+      return r.json();
+    });
+  }
+
+  function fetchStatusWithRetry(maxAttempts, delayMs) {
+    function attempt(tryNum) {
+      return fetchStatus().catch(function () {
+        if (tryNum < maxAttempts) {
+          return new Promise(function (resolve) {
+            setTimeout(resolve, delayMs);
+          }).then(function () {
+            return attempt(tryNum + 1);
+          });
+        }
+        throw new Error('offline');
+      });
+    }
+    return attempt(1);
+  }
+
+  function resetControls(running) {
+    controlsRunning = null;
+    renderControls(running);
+  }
+
+  function waitForStatusChange(expectRunning) {
+    const busyMsg = expectRunning ? 'Starting watering…' : 'Stopping…';
+    const deadline = Date.now() + ACTION_MAX_WAIT_MS;
+
+    function poll() {
+      return fetchStatusWithRetry(STATUS_RETRY_ATTEMPTS, STATUS_RETRY_DELAY_MS)
+        .then(function (s) {
+          if (!!s.timer_running === expectRunning) {
+            actionInFlight = false;
+            renderStatus(s);
+            return;
+          }
+          setNowMain(busyMsg);
+          if (Date.now() >= deadline) {
+            actionInFlight = false;
+            renderStatus(s);
+            return;
+          }
+          return new Promise(function (resolve) {
+            setTimeout(resolve, ACTION_POLL_MS);
+          }).then(poll);
+        })
+        .catch(function () {
+          setNowMain(busyMsg);
+          if (Date.now() >= deadline) {
+            actionInFlight = false;
+            setNowMain('Offline');
+            resetControls(!expectRunning);
+            throw new Error('offline');
+          }
+          return new Promise(function (resolve) {
+            setTimeout(resolve, ACTION_POLL_MS);
+          }).then(poll);
+        });
+    }
+
+    return poll();
+  }
+
+  function submitControlForm(form, running) {
+    const btn = form.querySelector('[type=submit]');
+    const isStop = running;
+    const busyLabel = isStop ? 'Stopping…' : 'Starting…';
+
+    if (btn) {
+      btn.disabled = true;
+      btn.value = busyLabel;
+    }
+    actionInFlight = true;
+    setNowMain(isStop ? 'Stopping…' : 'Starting watering…');
+
+    return fetch(isStop ? '/stop' : '/start', {
+      method: 'POST',
+      body: isStop ? null : new FormData(form),
+      redirect: 'manual'
+    })
+      .then(function (r) {
+        if (r.status === 302 || r.status === 0 || r.ok) {
+          return waitForStatusChange(!isStop);
+        }
+        return r.text().then(function (text) {
+          throw new Error(text || 'Request failed');
+        });
+      })
+      .catch(function (err) {
+        actionInFlight = false;
+        setNowMain(err.message || 'Request failed');
+        resetControls(running);
+      });
+  }
+
   function bindControlForm(el, running) {
     const form = el.querySelector('form');
     if (!form) {
       return;
     }
-    form.addEventListener('submit', function () {
-      const btn = form.querySelector('[type=submit]');
-      if (btn) {
-        btn.disabled = true;
-        btn.value = running ? 'Stopping…' : 'Starting…';
-      }
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      submitControlForm(form, running);
     });
   }
 
@@ -341,11 +448,13 @@
   }
 
   function refresh() {
-    fetch('/status')
-      .then(function (r) { return r.json(); })
+    if (actionInFlight) {
+      return;
+    }
+    fetchStatusWithRetry(STATUS_RETRY_ATTEMPTS, STATUS_RETRY_DELAY_MS)
       .then(renderStatus)
       .catch(function () {
-        document.getElementById('now-main').textContent = 'Offline';
+        setNowMain('Offline');
       });
   }
 
