@@ -1,5 +1,6 @@
 #include "station_shared.h"
 #include "web_assets.h"
+#include "schedule.h"
 
 #include <ArduinoJson.h>
 
@@ -162,6 +163,8 @@ static void web_handle_get_status() {
   json_append_watering_row(history, "gh", lastWateringGH);
   json_append_watering_row(history, "wc", lastWateringWC);
 
+  schedule_append_status_json(doc);
+
   String jsonString;
   serializeJson(doc, jsonString);
   server.send(200, "application/json", jsonString);
@@ -198,6 +201,41 @@ static void web_handle_stop_timer() {
   server.send(302, "text/plain", "");
 }
 
+static void web_handle_get_schedules() {
+  JsonDocument doc;
+  JsonArray arr = doc["schedules"].to<JsonArray>();
+  schedule_append_list_json(arr);
+
+  String jsonString;
+  serializeJson(doc, jsonString);
+  server.send(200, "application/json", jsonString);
+}
+
+static void web_handle_put_schedules() {
+  String body = server.arg("plain");
+  if (body.isEmpty()) {
+    server.send(400, "text/plain", "Missing body");
+    return;
+  }
+
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, body);
+  if (err || !doc.is<JsonArray>()) {
+    server.send(400, "text/plain", "Expected JSON array");
+    return;
+  }
+
+  String serialized;
+  serializeJson(doc, serialized);
+  String errorOut;
+  if (!schedule_replace_all(serialized.c_str(), errorOut)) {
+    server.send(400, "text/plain", errorOut);
+    return;
+  }
+
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void web_server_init() {
   Serial.print("Starting webserver ...");
   server.on("/", web_handle_index);
@@ -208,6 +246,8 @@ void web_server_init() {
   server.on("/status", HTTP_GET, web_handle_get_status);
   server.on("/start", HTTP_POST, web_handle_start_timer);
   server.on("/stop", HTTP_POST, web_handle_stop_timer);
+  server.on("/schedules", HTTP_GET, web_handle_get_schedules);
+  server.on("/schedules", HTTP_PUT, web_handle_put_schedules);
   server.begin();
   Serial.println("HTTP server started");
 }

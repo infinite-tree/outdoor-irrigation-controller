@@ -10,30 +10,50 @@
   <div class="app" id="app">
     <h1 class="hdr">Station</h1>
 
-    <section class="panel panel-now">
-      <div class="lbl">Now</div>
-      <div class="now-main" id="now-main">Loading…</div>
-      <div class="now-sub" id="now-sub"></div>
-      <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
-      <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
-      <div class="chips" id="chips"></div>
-    </section>
+    <nav class="tabs" aria-label="Sections">
+      <button type="button" class="tab active" data-tab="now" aria-selected="true">Now</button>
+      <button type="button" class="tab" data-tab="schedules" aria-selected="false">Schedules</button>
+    </nav>
 
-    <section class="panel">
-      <div class="lbl panel-lbl">Last watering</div>
-      <table class="zone-table">
-        <thead>
-          <tr>
-            <th scope="col"></th>
-            <th scope="col">When</th>
-            <th scope="col">Duration</th>
-          </tr>
-        </thead>
-        <tbody id="last-table"></tbody>
-      </table>
-    </section>
+    <div class="tab-panel active" id="panel-now">
+      <section class="panel panel-now">
+        <div class="lbl">Now</div>
+        <div class="now-main" id="now-main">Loading…</div>
+        <div class="now-sub" id="now-sub"></div>
+        <div class="next-run hidden" id="next-run"></div>
+        <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
+        <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
+        <div class="chips" id="chips"></div>
+      </section>
 
-    <section class="panel ctrl" id="controls"></section>
+      <section class="panel">
+        <div class="lbl panel-lbl">Last watering</div>
+        <table class="zone-table">
+          <thead>
+            <tr>
+              <th scope="col"></th>
+              <th scope="col">When</th>
+              <th scope="col">Duration</th>
+            </tr>
+          </thead>
+          <tbody id="last-table"></tbody>
+        </table>
+      </section>
+
+      <section class="panel ctrl" id="controls"></section>
+    </div>
+
+    <div class="tab-panel" id="panel-schedules">
+      <section class="panel panel-schedules">
+        <div class="sched-head">
+          <div class="lbl panel-lbl">Watering schedules</div>
+          <div class="sched-msg hidden" id="sched-msg"></div>
+        </div>
+        <div class="sched-list" id="sched-list"></div>
+        <button type="button" class="btn btn-secondary" id="add-schedule">Add schedule</button>
+        <button type="button" class="btn" id="save-schedules">Save schedules</button>
+      </section>
+    </div>
   </div>
   <script src="/app.js"></script>
 </body>

@@ -15,30 +15,50 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
   <div class="app" id="app">
     <h1 class="hdr">Station</h1>
 
-    <section class="panel panel-now">
-      <div class="lbl">Now</div>
-      <div class="now-main" id="now-main">Loading…</div>
-      <div class="now-sub" id="now-sub"></div>
-      <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
-      <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
-      <div class="chips" id="chips"></div>
-    </section>
+    <nav class="tabs" aria-label="Sections">
+      <button type="button" class="tab active" data-tab="now" aria-selected="true">Now</button>
+      <button type="button" class="tab" data-tab="schedules" aria-selected="false">Schedules</button>
+    </nav>
 
-    <section class="panel">
-      <div class="lbl panel-lbl">Last watering</div>
-      <table class="zone-table">
-        <thead>
-          <tr>
-            <th scope="col"></th>
-            <th scope="col">When</th>
-            <th scope="col">Duration</th>
-          </tr>
-        </thead>
-        <tbody id="last-table"></tbody>
-      </table>
-    </section>
+    <div class="tab-panel active" id="panel-now">
+      <section class="panel panel-now">
+        <div class="lbl">Now</div>
+        <div class="now-main" id="now-main">Loading…</div>
+        <div class="now-sub" id="now-sub"></div>
+        <div class="next-run hidden" id="next-run"></div>
+        <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
+        <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
+        <div class="chips" id="chips"></div>
+      </section>
 
-    <section class="panel ctrl" id="controls"></section>
+      <section class="panel">
+        <div class="lbl panel-lbl">Last watering</div>
+        <table class="zone-table">
+          <thead>
+            <tr>
+              <th scope="col"></th>
+              <th scope="col">When</th>
+              <th scope="col">Duration</th>
+            </tr>
+          </thead>
+          <tbody id="last-table"></tbody>
+        </table>
+      </section>
+
+      <section class="panel ctrl" id="controls"></section>
+    </div>
+
+    <div class="tab-panel" id="panel-schedules">
+      <section class="panel panel-schedules">
+        <div class="sched-head">
+          <div class="lbl panel-lbl">Watering schedules</div>
+          <div class="sched-msg hidden" id="sched-msg"></div>
+        </div>
+        <div class="sched-list" id="sched-list"></div>
+        <button type="button" class="btn btn-secondary" id="add-schedule">Add schedule</button>
+        <button type="button" class="btn" id="save-schedules">Save schedules</button>
+      </section>
+    </div>
   </div>
   <script src="/app.js"></script>
 </body>
@@ -52,6 +72,11 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .app{height:100dvh;max-width:26rem;margin:0 auto;padding:8px 10px;padding:max(8px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:8px;overflow:hidden}
 .hidden{display:none!important}
 .hdr{font-size:1.15rem;font-weight:700;color:#0056b3;text-align:center;margin:0}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tab{min-height:40px;border:1px solid #c8d4e0;border-radius:9px;background:#fff;color:#0056b3;font-size:.92rem;font-weight:700;cursor:pointer;-webkit-appearance:none}
+.tab.active{background:#0056b3;border-color:#0056b3;color:#fff}
+.tab-panel{display:none;flex:1;min-height:0;flex-direction:column;gap:8px;overflow:auto}
+.tab-panel.active{display:flex}
 .panel{background:#fff;border-radius:10px;padding:10px 12px;box-shadow:0 1px 3px rgba(0,0,0,.07)}
 .panel-now{background:linear-gradient(145deg,#0056b3,#0074c2);color:#fff}
 .lbl{opacity:.85;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
@@ -59,6 +84,8 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .panel-now .lbl{color:rgba(255,255,255,.9)}
 .now-main{font-size:1.2rem;font-weight:700;margin:2px 0;font-variant-numeric:tabular-nums}
 .now-sub{font-size:.82rem;opacity:.92}
+.next-run{margin-top:6px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.14);font-size:.8rem;line-height:1.3}
+.next-run b{display:block;font-size:.65rem;font-weight:600;opacity:.85;margin-bottom:2px;text-transform:uppercase;letter-spacing:.04em}
 .alert{background:#f8d7da;color:#721c24;border-radius:8px;padding:8px 10px;font-size:.82rem;font-weight:600;margin-top:6px}
 .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:8px}
 .chip{border-radius:8px;padding:6px 2px;text-align:center;font-size:.68rem;font-weight:700;line-height:1.15}
@@ -77,12 +104,36 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .ctrl-row input,.ctrl-row select{flex:1;min-width:0;min-height:42px;padding:8px 10px;font-size:16px;border:1px solid #ccc;border-radius:8px;background:#fff}
 .btn{width:100%;min-height:44px;border:none;border-radius:9px;font-size:1rem;font-weight:700;color:#fff;background:#0056b3;cursor:pointer;-webkit-appearance:none}
 .btn-stop{background:#b02a37}
+.btn-secondary{background:#5c6f82;margin-top:6px}
+.panel-schedules{display:flex;flex-direction:column;gap:8px}
+.sched-head{display:flex;flex-direction:column;gap:4px}
+.sched-msg{font-size:.8rem;font-weight:600;border-radius:8px;padding:7px 10px}
+.sched-msg.ok{background:#d4edda;color:#155724}
+.sched-msg.err{background:#f8d7da;color:#721c24}
+.sched-list{display:flex;flex-direction:column;gap:8px}
+.sched-empty{margin:0;font-size:.85rem;color:#666;text-align:center;padding:12px 4px}
+.sched-card{border:1px solid #e2e8f0;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;background:#fafbfd}
+.sched-row{display:flex;gap:6px;align-items:center}
+.sched-row label{flex:0 0 4.5rem;font-size:.78rem;font-weight:600;color:#555}
+.sched-row input[type=number],.sched-row input[type=time],.sched-row select{flex:1;min-width:0;min-height:40px;padding:8px 10px;font-size:16px;border:1px solid #ccc;border-radius:8px;background:#fff}
+.freq-toggle{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.freq-btn{min-height:38px;border:1px solid #c8d4e0;border-radius:8px;background:#fff;color:#444;font-size:.82rem;font-weight:700;cursor:pointer;-webkit-appearance:none}
+.freq-btn.active{background:#e8f1fb;border-color:#0056b3;color:#0056b3}
+.weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.day-chip{position:relative}
+.day-chip input{position:absolute;opacity:0;inset:0}
+.day-chip span{display:block;text-align:center;padding:8px 0;border:1px solid #c8d4e0;border-radius:8px;font-size:.72rem;font-weight:700;color:#555;background:#fff}
+.day-chip input:checked+span{background:#0056b3;border-color:#0056b3;color:#fff}
+.freq-panel.hidden{display:none}
+.btn-delete{min-height:38px;border:1px solid #e6b4b9;border-radius:8px;background:#fff;color:#b02a37;font-size:.85rem;font-weight:700;cursor:pointer;-webkit-appearance:none}
 )WSEMBED_7c4e9a";
 static const size_t WEB_STYLE_CSS_LEN = sizeof(WEB_STYLE_CSS) - 1;
 
 static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
   const POLL_MS = 3000;
   let controlsRunning = null;
+  let schedules = [];
+  let nextTempId = 1;
 
   const ZONE_ROWS = [
     ['Zone 1', 'z1'],
@@ -91,10 +142,38 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     ['Water cannon', 'wc']
   ];
 
+  const ZONE_OPTIONS = [
+    ['1', 'Zone 1'],
+    ['2', 'Zone 2'],
+    ['3', 'Greenhouse'],
+    ['4', 'Zones 1+2'],
+    ['5', 'Water cannon']
+  ];
+
+  const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
   function chipHtml(label, status) {
     const cls = status === 'on' ? 'chip-on' : status === 'error' ? 'chip-err' : 'chip-off';
     const word = status === 'on' ? 'On' : status === 'error' ? 'Error' : 'Off';
     return '<div class="chip ' + cls + '"><b>' + label + '</b>' + word + '</div>';
+  }
+
+  function pad2(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  function timeValue(hour, minute) {
+    return pad2(hour) + ':' + pad2(minute);
+  }
+
+  function zoneOptionsHtml(selected) {
+    let html = '';
+    for (let i = 0; i < ZONE_OPTIONS.length; i++) {
+      const val = ZONE_OPTIONS[i][0];
+      const label = ZONE_OPTIONS[i][1];
+      html += '<option value="' + val + '"' + (String(selected) === val ? ' selected' : '') + '>' + label + '</option>';
+    }
+    return html;
   }
 
   function bindControlForm(el, running) {
@@ -131,11 +210,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       '<div class="ctrl-row">' +
       '<input type="number" name="duration" min="1" value="10" inputmode="numeric" aria-label="Minutes">' +
       '<select name="zone" aria-label="What to water">' +
-      '<option value="1">Zone 1</option>' +
-      '<option value="2">Zone 2</option>' +
-      '<option value="3">Greenhouse</option>' +
-      '<option value="4">Zones 1+2</option>' +
-      '<option value="5">Water cannon</option>' +
+      zoneOptionsHtml('2') +
       '</select></div>' +
       '<input class="btn" type="submit" value="Start watering">' +
       '</form>';
@@ -156,6 +231,19 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
         '<td' + (muted ? ' class="muted"' : '') + '>' + row.duration + '</td></tr>';
     }
     document.getElementById('last-table').innerHTML = html;
+  }
+
+  function renderNextRun(next) {
+    const el = document.getElementById('next-run');
+    if (!next || !next.active) {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    el.innerHTML =
+      '<b>Next scheduled</b>' +
+      (next.when || '—') + ' · ' + (next.label || '');
   }
 
   function renderStatus(s) {
@@ -183,8 +271,204 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       chipHtml('GH', z.gh) +
       chipHtml('WC', z.wc);
 
+    renderNextRun(s.next_scheduled);
     renderLastTable(s.last_watering);
     renderControls(!!s.timer_running);
+  }
+
+  function setSchedMessage(text, isError) {
+    const el = document.getElementById('sched-msg');
+    if (!text) {
+      el.classList.add('hidden');
+      el.textContent = '';
+      return;
+    }
+    el.classList.remove('hidden', 'ok', 'err');
+    el.classList.add(isError ? 'err' : 'ok');
+    el.textContent = text;
+  }
+
+  function defaultSchedule() {
+    return {
+      id: 0,
+      _key: 'new-' + (nextTempId++),
+      zone: 2,
+      duration: 60,
+      hour: 10,
+      minute: 0,
+      freq: 'weekly',
+      interval_days: 2,
+      weekdays: [0, 1, 1, 1, 1, 1, 0]
+    };
+  }
+
+  function normalizeSchedule(raw) {
+    const weekdays = Array.isArray(raw.weekdays) ? raw.weekdays.slice(0, 7) : [0, 0, 0, 0, 0, 0, 0];
+    while (weekdays.length < 7) {
+      weekdays.push(0);
+    }
+    return {
+      id: raw.id || 0,
+      _key: 'id-' + (raw.id || ('new-' + (nextTempId++))),
+      zone: raw.zone || 2,
+      duration: raw.duration || 10,
+      hour: raw.hour || 0,
+      minute: raw.minute || 0,
+      freq: raw.freq === 'interval' ? 'interval' : 'weekly',
+      interval_days: raw.interval_days || 2,
+      weekdays: weekdays
+    };
+  }
+
+  function scheduleCardHtml(sched, index) {
+    const key = sched._key;
+    const weeklyActive = sched.freq === 'weekly';
+  const dayBoxes = DAY_LABELS.map(function (label, dayIndex) {
+      const checked = sched.weekdays[dayIndex] ? ' checked' : '';
+      return (
+        '<label class="day-chip">' +
+        '<input type="checkbox" data-field="weekday" data-day="' + dayIndex + '"' + checked + '>' +
+        '<span>' + label + '</span></label>'
+      );
+    }).join('');
+
+    return (
+      '<article class="sched-card" data-key="' + key + '">' +
+      '<div class="sched-row">' +
+      '<label>Zone</label>' +
+      '<select data-field="zone" aria-label="Zone">' + zoneOptionsHtml(sched.zone) + '</select>' +
+      '</div>' +
+      '<div class="sched-row">' +
+      '<label>Minutes</label>' +
+      '<input type="number" data-field="duration" min="1" inputmode="numeric" value="' + sched.duration + '" aria-label="Duration in minutes">' +
+      '</div>' +
+      '<div class="sched-row">' +
+      '<label>Time</label>' +
+      '<input type="time" data-field="time" value="' + timeValue(sched.hour, sched.minute) + '" aria-label="Start time">' +
+      '</div>' +
+      '<div class="freq-toggle" role="group" aria-label="Frequency type">' +
+      '<button type="button" class="freq-btn' + (weeklyActive ? ' active' : '') + '" data-freq="weekly">Weekdays</button>' +
+      '<button type="button" class="freq-btn' + (!weeklyActive ? ' active' : '') + '" data-freq="interval">Every N days</button>' +
+      '</div>' +
+      '<div class="freq-panel weekly-panel' + (weeklyActive ? '' : ' hidden') + '">' +
+      '<div class="weekdays">' + dayBoxes + '</div>' +
+      '</div>' +
+      '<div class="freq-panel interval-panel' + (!weeklyActive ? '' : ' hidden') + '">' +
+      '<div class="sched-row">' +
+      '<label>Every</label>' +
+      '<input type="number" data-field="interval_days" min="1" max="365" inputmode="numeric" value="' + sched.interval_days + '" aria-label="Days between runs">' +
+      '</div>' +
+      '</div>' +
+      '<button type="button" class="btn-delete" data-action="delete">Delete schedule</button>' +
+      '</article>'
+    );
+  }
+
+  function renderScheduleList() {
+    const list = document.getElementById('sched-list');
+    if (!schedules.length) {
+      list.innerHTML = '<p class="sched-empty">No schedules yet. Tap “Add schedule” to create one.</p>';
+      return;
+    }
+    list.innerHTML = schedules.map(scheduleCardHtml).join('');
+  }
+
+  function readCard(card) {
+    const key = card.getAttribute('data-key');
+    const existing = schedules.find(function (s) { return s._key === key; }) || defaultSchedule();
+    const timeParts = (card.querySelector('[data-field=time]').value || '00:00').split(':');
+    const weekdays = [0, 0, 0, 0, 0, 0, 0];
+    card.querySelectorAll('[data-field=weekday]').forEach(function (input) {
+      const day = parseInt(input.getAttribute('data-day'), 10);
+      weekdays[day] = input.checked ? 1 : 0;
+    });
+    const weeklyBtn = card.querySelector('.freq-btn[data-freq=weekly]');
+    const freq = weeklyBtn.classList.contains('active') ? 'weekly' : 'interval';
+    return {
+      id: existing.id || 0,
+      _key: key,
+      zone: parseInt(card.querySelector('[data-field=zone]').value, 10),
+      duration: parseInt(card.querySelector('[data-field=duration]').value, 10),
+      hour: parseInt(timeParts[0], 10) || 0,
+      minute: parseInt(timeParts[1], 10) || 0,
+      freq: freq,
+      interval_days: parseInt(card.querySelector('[data-field=interval_days]').value, 10) || 1,
+      weekdays: weekdays
+    };
+  }
+
+  function syncSchedulesFromDom() {
+    const cards = document.querySelectorAll('.sched-card');
+    schedules = Array.prototype.map.call(cards, readCard);
+  }
+
+  function loadSchedules() {
+    return fetch('/schedules')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        schedules = (data.schedules || []).map(normalizeSchedule);
+        renderScheduleList();
+      })
+      .catch(function () {
+        setSchedMessage('Could not load schedules', true);
+      });
+  }
+
+  function saveSchedules() {
+    syncSchedulesFromDom();
+    const payload = schedules.map(function (s) {
+      return {
+        id: s.id || 0,
+        zone: s.zone,
+        duration: s.duration,
+        hour: s.hour,
+        minute: s.minute,
+        freq: s.freq,
+        interval_days: s.interval_days,
+        weekdays: s.weekdays
+      };
+    });
+
+    const btn = document.getElementById('save-schedules');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    return fetch('/schedules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.text().then(function (text) { throw new Error(text || 'Save failed'); });
+        }
+        return loadSchedules();
+      })
+      .then(function () {
+        setSchedMessage('Schedules saved', false);
+        refresh();
+      })
+      .catch(function (err) {
+        setSchedMessage(err.message || 'Save failed', true);
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = 'Save schedules';
+      });
+  }
+
+  function switchTab(tabName) {
+    document.querySelectorAll('.tab').forEach(function (btn) {
+      const active = btn.getAttribute('data-tab') === tabName;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    document.querySelectorAll('.tab-panel').forEach(function (panel) {
+      panel.classList.toggle('active', panel.id === 'panel-' + tabName);
+    });
+    if (tabName === 'schedules' && !schedules.length) {
+      loadSchedules();
+    }
   }
 
   function refresh() {
@@ -195,6 +479,43 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
         document.getElementById('now-main').textContent = 'Offline';
       });
   }
+
+  document.querySelectorAll('.tab').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      switchTab(btn.getAttribute('data-tab'));
+    });
+  });
+
+  document.getElementById('add-schedule').addEventListener('click', function () {
+    syncSchedulesFromDom();
+    schedules.push(defaultSchedule());
+    renderScheduleList();
+  });
+
+  document.getElementById('save-schedules').addEventListener('click', saveSchedules);
+
+  document.getElementById('sched-list').addEventListener('click', function (e) {
+    const deleteBtn = e.target.closest('[data-action=delete]');
+    if (deleteBtn) {
+      const card = deleteBtn.closest('.sched-card');
+      syncSchedulesFromDom();
+      const key = card.getAttribute('data-key');
+      schedules = schedules.filter(function (s) { return s._key !== key; });
+      renderScheduleList();
+      return;
+    }
+
+    const freqBtn = e.target.closest('.freq-btn');
+    if (freqBtn) {
+      const card = freqBtn.closest('.sched-card');
+      card.querySelectorAll('.freq-btn').forEach(function (btn) {
+        btn.classList.toggle('active', btn === freqBtn);
+      });
+      const weekly = freqBtn.getAttribute('data-freq') === 'weekly';
+      card.querySelector('.weekly-panel').classList.toggle('hidden', !weekly);
+      card.querySelector('.interval-panel').classList.toggle('hidden', weekly);
+    }
+  });
 
   refresh();
   setInterval(refresh, POLL_MS);
