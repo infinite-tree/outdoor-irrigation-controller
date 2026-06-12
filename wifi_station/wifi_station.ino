@@ -26,6 +26,7 @@ SPIClass SDSPI(HSPI);
 #include "Logo.h"
 #include "Config.h"
 #include "station_shared.h"
+#include "schedule.h"
 
 #ifndef VFD_ALERT_URL
 #define VFD_ALERT_URL ""
@@ -635,6 +636,7 @@ void setup() {
   tzset();
 
   init_wifi();
+  schedule_init();
   web_server_init();
   setupInflux();
   update_display_status(false, false, ZONES_OFF);
@@ -648,6 +650,8 @@ void loop() {
   if (timerRunning && (millis() - timerStartTime >= timerDuration)) {
     stop_timer();
   }
+
+  schedule_tick(timerRunning);
 
   // Remote pump: majority vote across several AC cycles (see REMOTE_SAMPLE_*)
   bool remote_on = read_remote_pump_input();
