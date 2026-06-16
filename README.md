@@ -79,5 +79,6 @@ Vendored under `lib/`:
 - `GxEPD` — e-paper display
 - `Adafruit-GFX-Library` — fonts and graphics
 - `BlePressureSensor` — reusable BLE pressure sensor client (NimBLE, ESP32)
+- `RootCert` — ISRG Root X1 for InfluxDB HTTPS
 - `Logo` — custom bitmap
 - `Config` — local settings and secrets (gitignored)
