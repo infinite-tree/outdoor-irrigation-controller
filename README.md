@@ -26,7 +26,7 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `INFLUX_*` | wifi_station | InfluxDB telemetry |
 | `VFD_ALERT_URL` | wifi_station | POST target when Frenic fault input activates (empty = disabled) |
 | `VFD_ERROR_SUMMARY` | wifi_station | `error_summary` field in that POST body |
-| `BLE_PRESSURE_*` | wifi_solenoid | BLE device UUIDs and linear pressure scale (empty device id = disabled) |
+| `BLE_PRESSURE_*` | wifi_solenoid | BLE device UUIDs and linear pressure scale (empty device id = disabled); see `lib/BlePressureSensor` |
 | `PRESSURE_*` | wifi_station | Poll interval, thresholds, alarm duration, battery floor; alerts use `VFD_ALERT_URL` |
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
@@ -78,5 +78,6 @@ Vendored under `lib/`:
 
 - `GxEPD` — e-paper display
 - `Adafruit-GFX-Library` — fonts and graphics
+- `BlePressureSensor` — reusable BLE pressure sensor client (NimBLE, ESP32)
 - `Logo` — custom bitmap
 - `Config` — local settings and secrets (gitignored)
