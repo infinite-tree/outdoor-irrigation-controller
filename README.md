@@ -9,7 +9,7 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 
 ## Setup
 
-1. Copy `lib/Config/Config.h.example` to `lib/Config/Config.h` and set WiFi, static IPs, InfluxDB credentials (station), and optional `VFD_ALERT_URL`.
+1. Copy `lib/Config/Config.h.example` to `lib/Config/Config.h` and set WiFi, static IPs, InfluxDB credentials (station), optional `VFD_ALERT_URL`, and BLE pressure sensor settings (solenoid).
 2. Build and upload with PlatformIO from the repo root:
    - Station: `pio run -d wifi_station -t upload`
    - Solenoid: `pio run -d wifi_solenoid -t upload`
@@ -26,6 +26,18 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `INFLUX_*` | wifi_station | InfluxDB telemetry |
 | `VFD_ALERT_URL` | wifi_station | POST target when Frenic fault input activates (empty = disabled) |
 | `VFD_ERROR_SUMMARY` | wifi_station | `error_summary` field in that POST body |
+| `BLE_PRESSURE_*` | wifi_solenoid | BLE device UUIDs and linear pressure scale (empty device id = disabled) |
+| `PRESSURE_*` | wifi_station | Poll interval, thresholds, alarm duration, battery floor; alerts use `VFD_ALERT_URL` |
+
+### BLE pressure sensor (wifi_solenoid + wifi_station)
+
+The solenoid board reads a BLE pressure sensor on demand via `GET /pressure` (BLE connect/read happens during the HTTP request). The station polls that endpoint every `PRESSURE_POLL_INTERVAL_MS` while the pump is on (`vfd` > 0), even when no zones are watering.
+
+Raw values below `BLE_PRESSURE_RAW_FLOOR` (default 2000) report 0 psi. Between the two reference points (default 19000→34 psi and 26000→37 psi), psi is linear:
+
+`psi = PSI_REF_LOW + (raw - RAW_REF_LOW) * (PSI_REF_HIGH - PSI_REF_LOW) / (RAW_REF_HIGH - RAW_REF_LOW)`
+
+If pressure stays below `PRESSURE_LOW_PSI` or above `PRESSURE_HIGH_PSI` for `PRESSURE_ALARM_DURATION_MS`, or if battery drops below `PRESSURE_BATTERY_LOW_PCT`, the station POSTs to `VFD_ALERT_URL` with the configured summary strings (same JSON shape as the VFD fault alert).
 
 ### VFD fault input (wifi_station)
 
@@ -58,7 +70,7 @@ To regenerate the bitmap:
 Edit files under each project’s `web/` folder (`index.html`, `style.css`, `app.js`). A pre-build step embeds them into `web_assets.h` as PROGMEM. HTTP routes and JSON live in `web_ui.cpp`; hardware and irrigation logic stay in the `.ino` files.
 
 - **wifi_station** — timer, zone status, watering history
-- **wifi_solenoid** — zone 1/2 on/off (`GET /status`, `POST /set_zone` with `zone1` and `zone2`)
+- **wifi_solenoid** — zone 1/2 on/off (`GET /status`, `POST /set_zone` with `zone1` and `zone2`), BLE pressure read (`GET /pressure`)
 
 ## Libraries
 

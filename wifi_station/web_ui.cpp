@@ -210,6 +210,16 @@ static void web_handle_get_status() {
   doc["solenoid_state"] = currentZoneState;
   doc["remote_signal_on"] = remoteSignalOn;
   doc["vfd"] = vfdMode;
+  doc["pressure_valid"] = solenoidPressureValid;
+  if (solenoidPressureValid) {
+    doc["pressure_psi"] = solenoidPressurePsi;
+  }
+  if (solenoidBatteryValid) {
+    doc["pressure_battery_pct"] = solenoidBatteryPct;
+  }
+  doc["pressure_low_alarm"] = solenoidPressureLowAlarm;
+  doc["pressure_high_alarm"] = solenoidPressureHighAlarm;
+  doc["pressure_battery_low_alarm"] = solenoidBatteryLowAlarm;
 
   JsonObject history = doc["last_watering"].to<JsonObject>();
   json_append_watering_row(history, "z1", lastWateringZ1);

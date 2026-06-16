@@ -35,6 +35,31 @@ SPIClass SDSPI(HSPI);
 #define VFD_ERROR_SUMMARY "Frenic Mini VFD fault"
 #endif
 
+#ifndef PRESSURE_POLL_INTERVAL_MS
+#define PRESSURE_POLL_INTERVAL_MS 300000
+#endif
+#ifndef PRESSURE_LOW_PSI
+#define PRESSURE_LOW_PSI 20.0f
+#endif
+#ifndef PRESSURE_HIGH_PSI
+#define PRESSURE_HIGH_PSI 45.0f
+#endif
+#ifndef PRESSURE_ALARM_DURATION_MS
+#define PRESSURE_ALARM_DURATION_MS 600000
+#endif
+#ifndef PRESSURE_BATTERY_LOW_PCT
+#define PRESSURE_BATTERY_LOW_PCT 20
+#endif
+#ifndef PRESSURE_LOW_SUMMARY
+#define PRESSURE_LOW_SUMMARY "Solenoid pressure low"
+#endif
+#ifndef PRESSURE_HIGH_SUMMARY
+#define PRESSURE_HIGH_SUMMARY "Solenoid pressure high"
+#endif
+#ifndef PRESSURE_BATTERY_SUMMARY
+#define PRESSURE_BATTERY_SUMMARY "Solenoid pressure sensor battery low"
+#endif
+
 
 #define EDP_BUSY_PIN            48
 #define EDP_RSET_PIN            47
@@ -100,6 +125,14 @@ bool remoteSignalOn = false;
 bool vfdErrorActive = false;
 byte currentZoneState = ZONES_OFF;
 
+float solenoidPressurePsi = 0.0f;
+int solenoidBatteryPct = -1;
+bool solenoidPressureValid = false;
+bool solenoidBatteryValid = false;
+bool solenoidPressureLowAlarm = false;
+bool solenoidPressureHighAlarm = false;
+bool solenoidBatteryLowAlarm = false;
+
 IPAddress local_IP(STATION_STATIC_IP_0, STATION_STATIC_IP_1, STATION_STATIC_IP_2, STATION_STATIC_IP_3);
 IPAddress gateway(LAN_GATEWAY_0, LAN_GATEWAY_1, LAN_GATEWAY_2, LAN_GATEWAY_3);
 IPAddress subnet(LAN_SUBNET_0, LAN_SUBNET_1, LAN_SUBNET_2, LAN_SUBNET_3);
@@ -152,6 +185,12 @@ bool pendingDisplayUpdate = false;
 bool wifiReconnecting = false;
 unsigned long wifiReconnectStarted = 0;
 unsigned long lastInfluxSend = -3000000; // Track last InfluxDB send time
+unsigned long lastPressurePoll = 0;
+unsigned long pressureLowSince = 0;
+unsigned long pressureHighSince = 0;
+bool pressureLowAlertSent = false;
+bool pressureHighAlertSent = false;
+bool batteryLowAlertSent = false;
 InfluxArduino influx;
 
 
@@ -334,22 +373,157 @@ bool send_vfd_error_alert(const char *summary, const char *datetime) {
   String body;
   serializeJson(doc, body);
 
-  Serial.print("VFD alert POST ");
+  Serial.print("Alert POST ");
   Serial.println(body);
 
   int httpResponseCode = http.POST(body);
   bool success = (httpResponseCode >= 200 && httpResponseCode < 300);
 
   if (success) {
-    Serial.print("VFD alert accepted: ");
+    Serial.print("Alert accepted: ");
     Serial.println(http.getString());
   } else {
-    Serial.print("VFD alert failed with code: ");
+    Serial.print("Alert failed with code: ");
     Serial.println(httpResponseCode);
   }
 
   http.end();
   return success;
+}
+
+bool fetch_pressure_from_solenoid(SolenoidPressureSample *sample) {
+  String url = "http://" + String(SOLENOID_HTTP_HOST) + "/pressure";
+  HTTPClient http;
+
+  http.setTimeout(SOLENOID_HTTP_TIMEOUT_MS);
+  http.setConnectTimeout(SOLENOID_HTTP_CONNECT_MS);
+  http.begin(url);
+
+  int httpResponseCode = http.GET();
+  if (httpResponseCode != 200) {
+    Serial.print("Pressure poll failed with code: ");
+    Serial.println(httpResponseCode);
+    http.end();
+    sample->ok = false;
+    return false;
+  }
+
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, http.getString());
+  http.end();
+
+  if (error) {
+    Serial.print("Pressure poll JSON parse failed: ");
+    Serial.println(error.c_str());
+    sample->ok = false;
+    return false;
+  }
+
+  sample->ok = doc["ok"] | false;
+  if (!sample->ok) {
+    const char *message = doc["error"] | "unknown error";
+    Serial.print("Pressure poll error: ");
+    Serial.println(message);
+    return false;
+  }
+
+  sample->psi = doc["pressure_psi"] | 0.0f;
+  sample->battery_valid = !doc["battery_pct"].isNull();
+  sample->battery_pct = sample->battery_valid ? doc["battery_pct"].as<int>() : -1;
+  return true;
+}
+
+void reset_pressure_alarm_state() {
+  pressureLowSince = 0;
+  pressureHighSince = 0;
+  pressureLowAlertSent = false;
+  pressureHighAlertSent = false;
+}
+
+void update_pressure_monitoring() {
+  const bool pump_on = vfdMode > 0;
+  if (!pump_on) {
+    reset_pressure_alarm_state();
+    batteryLowAlertSent = false;
+    return;
+  }
+
+  const unsigned long now = millis();
+  if (now - lastPressurePoll < PRESSURE_POLL_INTERVAL_MS) {
+    return;
+  }
+  lastPressurePoll = now;
+
+  SolenoidPressureSample sample;
+  if (!fetch_pressure_from_solenoid(&sample) || !sample.ok) {
+    solenoidPressureValid = false;
+    return;
+  }
+
+  solenoidPressureValid = true;
+  solenoidPressurePsi = sample.psi;
+  solenoidBatteryValid = sample.battery_valid;
+  if (sample.battery_valid) {
+    solenoidBatteryPct = sample.battery_pct;
+  }
+
+  Serial.print("Solenoid pressure ");
+  Serial.print(sample.psi, 2);
+  Serial.println(" psi");
+  if (sample.battery_valid) {
+    Serial.print("Solenoid sensor battery ");
+    Serial.print(sample.battery_pct);
+    Serial.println("%");
+  }
+
+  char datetime[40];
+  format_event_datetime(datetime, sizeof(datetime));
+
+  if (sample.psi < PRESSURE_LOW_PSI) {
+    if (pressureLowSince == 0) {
+      pressureLowSince = now;
+    }
+    if (!pressureLowAlertSent &&
+        now - pressureLowSince >= PRESSURE_ALARM_DURATION_MS) {
+      solenoidPressureLowAlarm = true;
+      pressureLowAlertSent = true;
+      send_vfd_error_alert(PRESSURE_LOW_SUMMARY, datetime);
+      Serial.println("Solenoid pressure low alarm");
+    }
+  } else {
+    pressureLowSince = 0;
+    pressureLowAlertSent = false;
+    solenoidPressureLowAlarm = false;
+  }
+
+  if (sample.psi > PRESSURE_HIGH_PSI) {
+    if (pressureHighSince == 0) {
+      pressureHighSince = now;
+    }
+    if (!pressureHighAlertSent &&
+        now - pressureHighSince >= PRESSURE_ALARM_DURATION_MS) {
+      solenoidPressureHighAlarm = true;
+      pressureHighAlertSent = true;
+      send_vfd_error_alert(PRESSURE_HIGH_SUMMARY, datetime);
+      Serial.println("Solenoid pressure high alarm");
+    }
+  } else {
+    pressureHighSince = 0;
+    pressureHighAlertSent = false;
+    solenoidPressureHighAlarm = false;
+  }
+
+  if (sample.battery_valid && sample.battery_pct < PRESSURE_BATTERY_LOW_PCT) {
+    if (!batteryLowAlertSent) {
+      solenoidBatteryLowAlarm = true;
+      batteryLowAlertSent = true;
+      send_vfd_error_alert(PRESSURE_BATTERY_SUMMARY, datetime);
+      Serial.println("Solenoid sensor battery low alarm");
+    }
+  } else if (sample.battery_valid) {
+    batteryLowAlertSent = false;
+    solenoidBatteryLowAlarm = false;
+  }
 }
 
 void update_vfd() {
@@ -713,6 +887,8 @@ void loop() {
     pendingDisplayUpdate = true;
     Serial.println("VFD error cleared");
   }
+
+  update_pressure_monitoring();
 
   // Handle web events outside of the webserver response path.
   // Always clear deferred flags so a stop request while idle (or a start while

@@ -40,6 +40,23 @@ extern byte currentZoneState;
 extern int vfdMode;
 extern bool remoteSignalOn;
 extern bool vfdErrorActive;
+extern float solenoidPressurePsi;
+extern int solenoidBatteryPct;
+extern bool solenoidPressureValid;
+extern bool solenoidBatteryValid;
+extern bool solenoidPressureLowAlarm;
+extern bool solenoidPressureHighAlarm;
+extern bool solenoidBatteryLowAlarm;
+
+struct SolenoidPressureSample {
+  bool ok;
+  float psi;
+  int battery_pct;
+  bool battery_valid;
+};
+
+bool fetch_pressure_from_solenoid(SolenoidPressureSample *sample);
+void update_pressure_monitoring();
 
 void format_millis(unsigned long milliseconds, char *buffer);
 String format_time_ago(unsigned long secondsAgo);

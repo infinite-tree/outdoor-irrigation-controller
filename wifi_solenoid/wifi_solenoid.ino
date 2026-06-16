@@ -15,6 +15,7 @@
 #include "Logo.h"
 #include "Config.h"
 #include "solenoid_shared.h"
+#include "ble_pressure.h"
 
 #define EDP_BUSY_PIN            48
 #define EDP_RSET_PIN            47
@@ -203,6 +204,7 @@ void setup() {
   tzset();
 
   init_wifi();
+  ble_pressure_init();
   web_server_init();
 
   update_display_status();

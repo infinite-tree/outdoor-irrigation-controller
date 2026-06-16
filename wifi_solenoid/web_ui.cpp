@@ -1,5 +1,6 @@
 #include "solenoid_shared.h"
 #include "web_assets.h"
+#include "ble_pressure.h"
 
 #include <ArduinoJson.h>
 
@@ -27,6 +28,36 @@ static void web_handle_get_status() {
   JsonObject zones = doc["zones"].to<JsonObject>();
   zones["z1"] = zone1On ? "on" : "off";
   zones["z2"] = zone2On ? "on" : "off";
+
+  String jsonString;
+  serializeJson(doc, jsonString);
+  server.send(200, "application/json", jsonString);
+}
+
+static void web_handle_get_pressure() {
+  JsonDocument doc;
+  doc["enabled"] = ble_pressure_enabled();
+
+  if (!ble_pressure_enabled()) {
+    doc["ok"] = false;
+    doc["error"] = "BLE pressure sensor not configured";
+    String jsonString;
+    serializeJson(doc, jsonString);
+    server.send(200, "application/json", jsonString);
+    return;
+  }
+
+  BlePressureReading reading = ble_pressure_read();
+  doc["ok"] = reading.ok;
+  if (reading.ok) {
+    doc["raw"] = reading.raw;
+    doc["pressure_psi"] = reading.psi;
+    if (reading.battery_valid) {
+      doc["battery_pct"] = reading.battery_pct;
+    }
+  } else {
+    doc["error"] = reading.error;
+  }
 
   String jsonString;
   serializeJson(doc, jsonString);
@@ -65,6 +96,7 @@ void web_server_init() {
   server.on("/style.css", web_handle_style);
   server.on("/app.js", web_handle_app_js);
   server.on("/status", HTTP_GET, web_handle_get_status);
+  server.on("/pressure", HTTP_GET, web_handle_get_pressure);
   server.on("/set_zone", HTTP_POST, web_handle_set_zone);
   server.begin();
   Serial.println("HTTP server started");
