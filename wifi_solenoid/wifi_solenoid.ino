@@ -148,6 +148,33 @@ void update_display_status() {
   display.setCursor(170, 55);
   display.println(zone2_status);
 
+  char pressure_text[16] = "N/A";
+  char battery_text[8] = "N/A";
+  if (ble_pressure_enabled()) {
+    BlePressureReading reading = ble_pressure_read();
+    if (reading.ok) {
+      snprintf(pressure_text, sizeof(pressure_text), "%.1f psi", reading.psi);
+      if (reading.battery_valid) {
+        snprintf(battery_text, sizeof(battery_text), "%d%%", reading.battery_pct);
+      } else {
+        strcpy(battery_text, "--");
+      }
+    } else {
+      strcpy(pressure_text, "--");
+      strcpy(battery_text, "--");
+    }
+  }
+
+  display.setCursor(90, 75);
+  display.println("Pressure:");
+  display.setCursor(170, 75);
+  display.println(pressure_text);
+
+  display.setCursor(90, 95);
+  display.println("Battery:");
+  display.setCursor(170, 95);
+  display.println(battery_text);
+
   display.update();
   lastDisplayUpdate = millis();
 }
