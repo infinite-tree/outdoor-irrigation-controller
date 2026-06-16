@@ -71,6 +71,10 @@ bool ble_pressure_refresh_if_stale(unsigned long max_age_ms, bool force) {
   cached_reading = ble_pressure_sensor.read();
   last_ble_read = now;
   cache_valid = true;
+  if (!cached_reading.ok && cached_reading.error != nullptr) {
+    Serial.print("BLE pressure read failed: ");
+    Serial.println(cached_reading.error);
+  }
   return true;
 }
 

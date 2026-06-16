@@ -3,8 +3,13 @@
 #include <NimBLEDevice.h>
 #include <string>
 
+#if defined(ESP_PLATFORM)
+#include "esp_coexist.h"
+#endif
+
 #define BLE_BATTERY_SERVICE_UUID ((uint16_t)0x180F)
 #define BLE_BATTERY_LEVEL_CHAR_UUID ((uint16_t)0x2A19)
+#define BLE_SCAN_DURATION_SEC 10
 
 BlePressureSensor::BlePressureSensor() : initialized_(false), client_(nullptr) {}
 
@@ -16,6 +21,28 @@ bool BlePressureSensor::enabled() const {
 }
 
 bool BlePressureSensor::isInitialized() const { return initialized_; }
+
+bool BlePressureSensor::isPlaceholderDeviceId(const char *device_id) {
+  if (device_id == nullptr || device_id[0] == '\0') {
+    return true;
+  }
+
+  static const char placeholder[] = "AA:BB:CC:DD:EE:FF";
+  for (size_t i = 0; i < sizeof(placeholder) - 1; i++) {
+    char a = device_id[i];
+    char b = placeholder[i];
+    if (a >= 'a' && a <= 'f') {
+      a = (char)(a - 'a' + 'A');
+    }
+    if (b >= 'a' && b <= 'f') {
+      b = (char)(b - 'a' + 'A');
+    }
+    if (a != b) {
+      return false;
+    }
+  }
+  return device_id[sizeof(placeholder) - 1] == '\0';
+}
 
 float BlePressureSensor::rawToPsi(uint16_t raw, const BlePressureConfig &config) {
   if (raw < config.raw_floor) {
@@ -50,6 +77,62 @@ void BlePressureSensor::begin(const BlePressureConfig &config) {
   initialized_ = true;
 }
 
+static void preferBleRadio() {
+#if defined(ESP_PLATFORM)
+  esp_coex_preference_set(ESP_COEX_PREFER_BT);
+#endif
+}
+
+bool BlePressureSensor::connectByAddress(uint8_t address_type) {
+  NimBLEClient *client = static_cast<NimBLEClient *>(client_);
+  NimBLEAddress address(std::string(config_.device_id), address_type);
+  Serial.print("BLE connecting to ");
+  Serial.print(config_.device_id);
+  Serial.print(" (type ");
+  Serial.print(address_type);
+  Serial.println(")...");
+
+  preferBleRadio();
+  const bool connected = client->connect(address);
+  if (!connected) {
+    Serial.println("BLE address connect failed");
+  }
+  return connected;
+}
+
+bool BlePressureSensor::connectByScan() {
+  NimBLEClient *client = static_cast<NimBLEClient *>(client_);
+  NimBLEScan *scan = NimBLEDevice::getScan();
+  scan->setActiveScan(true);
+  scan->setDuplicateFilter(true);
+
+  Serial.print("BLE scanning ");
+  Serial.print(BLE_SCAN_DURATION_SEC);
+  Serial.print("s for service ");
+  Serial.println(config_.service_uuid);
+
+  preferBleRadio();
+  const NimBLEUUID service_uuid(config_.service_uuid);
+  const NimBLEScanResults results = scan->getResults(BLE_SCAN_DURATION_SEC, false);
+
+  for (int i = 0; i < results.getCount(); i++) {
+    const NimBLEAdvertisedDevice *device = results.getDevice(i);
+    if (device == nullptr || !device->isAdvertisingService(service_uuid)) {
+      continue;
+    }
+
+    Serial.print("BLE scan found sensor at ");
+    Serial.println(device->getAddress().toString().c_str());
+    if (client->connect(device)) {
+      return true;
+    }
+    Serial.println("BLE connect to scanned device failed");
+  }
+
+  Serial.println("BLE scan found no matching sensor");
+  return false;
+}
+
 bool BlePressureSensor::connect() {
   if (!initialized_ || client_ == nullptr) {
     return false;
@@ -60,8 +143,20 @@ bool BlePressureSensor::connect() {
     return true;
   }
 
-  NimBLEAddress address(std::string(config_.device_id), config_.address_type);
-  return client->connect(address);
+  if (!isPlaceholderDeviceId(config_.device_id)) {
+    if (connectByAddress(config_.address_type)) {
+      return true;
+    }
+    if (config_.address_type != BLE_ADDR_RANDOM &&
+        connectByAddress(BLE_ADDR_RANDOM)) {
+      return true;
+    }
+    Serial.println("BLE falling back to service scan");
+  } else {
+    Serial.println("BLE device id is placeholder; scanning for sensor");
+  }
+
+  return connectByScan();
 }
 
 bool BlePressureSensor::readBatteryPercent(int *battery_pct) {

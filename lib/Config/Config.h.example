@@ -48,6 +48,9 @@
 #define VFD_ERROR_SUMMARY     "Frenic Mini VFD fault"
 
 // BLE pressure sensor on wifi_solenoid. Leave device id empty to disable reads.
+// Set BLE_PRESSURE_DEVICE_ID to the sensor MAC from nRF Connect / PressurePro
+// (not the placeholder AA:BB:CC:DD:EE:FF). If the MAC is wrong, firmware scans
+// for BLE_PRESSURE_SERVICE_UUID as a fallback.
 #define BLE_PRESSURE_DEVICE_ID          ""
 #define BLE_PRESSURE_SERVICE_UUID         ""
 #define BLE_PRESSURE_CHAR_UUID            ""

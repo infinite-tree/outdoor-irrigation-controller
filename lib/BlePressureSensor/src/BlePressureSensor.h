@@ -52,6 +52,9 @@ class BlePressureSensor {
   void *client_;
 
   bool connect();
+  bool connectByScan();
+  bool connectByAddress(uint8_t address_type);
+  static bool isPlaceholderDeviceId(const char *device_id);
   bool readBatteryPercent(int *battery_pct);
   static BlePressureReading makeError(const char *message);
 };
