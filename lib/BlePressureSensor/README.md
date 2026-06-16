@@ -2,6 +2,8 @@
 
 Arduino / PlatformIO library for reading BLE pressure sensors over NimBLE on ESP32.
 
+Designed for [CirrusSense TDWLB-LC Low Cost Wireless Pressure Transducers](https://www.cirrussense.com/). Tested with the **TDWLB-LC0250034** (0–250 psi range).
+
 Features:
 
 - Connect to a sensor by MAC address and read a custom GATT pressure characteristic
