@@ -31,7 +31,7 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
 
-The solenoid board reads a BLE pressure sensor on demand via `GET /pressure` (BLE connect/read happens during the HTTP request). Battery level is read from the standard BLE Battery Service (0x180F) and Battery Level characteristic (0x2A19); no extra UUID config is needed. The station polls that endpoint every `PRESSURE_POLL_INTERVAL_MS` while the pump is on (`vfd` > 0), even when no zones are watering.
+The solenoid board reads a BLE pressure sensor on demand via `GET /pressure` (BLE connect/read happens during the HTTP request). Battery level is read from the standard BLE Battery Service (0x180F) and Battery Level characteristic (0x2A19); no extra UUID config is needed. The station waits `PRESSURE_STARTUP_DELAY_MS` (default 5 minutes) after the pump turns on (`vfd` > 0), then polls that endpoint every `PRESSURE_POLL_INTERVAL_MS`, even when no zones are watering.
 
 Raw values below `BLE_PRESSURE_RAW_FLOOR` (default 2000) report 0 psi. Between the two reference points (default 19000→34 psi and 26000→37 psi), psi is linear:
 
