@@ -49,8 +49,7 @@ static BlePressureConfig ble_pressure_config_from_build() {
 }
 
 bool ble_pressure_enabled() {
-  return BLE_PRESSURE_DEVICE_ID[0] != '\0' &&
-         BLE_PRESSURE_SERVICE_UUID[0] != '\0' &&
+  return BLE_PRESSURE_SERVICE_UUID[0] != '\0' &&
          BLE_PRESSURE_CHAR_UUID[0] != '\0';
 }
 

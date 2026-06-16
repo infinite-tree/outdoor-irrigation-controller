@@ -14,8 +14,7 @@
 BlePressureSensor::BlePressureSensor() : initialized_(false), client_(nullptr) {}
 
 bool BlePressureSensor::enabled() const {
-  return config_.device_id != nullptr && config_.device_id[0] != '\0' &&
-         config_.service_uuid != nullptr && config_.service_uuid[0] != '\0' &&
+  return config_.service_uuid != nullptr && config_.service_uuid[0] != '\0' &&
          config_.characteristic_uuid != nullptr &&
          config_.characteristic_uuid[0] != '\0';
 }
