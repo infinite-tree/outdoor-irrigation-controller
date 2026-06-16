@@ -27,17 +27,17 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `VFD_ALERT_URL` | wifi_station | POST target when Frenic fault input activates (empty = disabled) |
 | `VFD_ERROR_SUMMARY` | wifi_station | `error_summary` field in that POST body |
 | `BLE_PRESSURE_*` | wifi_solenoid | BLE device UUIDs and linear pressure scale (empty device id = disabled); see `lib/BlePressureSensor` |
-| `PRESSURE_*` | wifi_station | Poll interval, thresholds, alarm duration, battery floor; alerts use `VFD_ALERT_URL` |
+| `PRESSURE_*` | wifi_station | Poll interval, thresholds, low/high alarm durations, battery floor; alerts use `VFD_ALERT_URL` |
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
 
-The solenoid board reads a BLE pressure sensor on demand via `GET /pressure` (BLE connect/read happens during the HTTP request). Battery level is read from the standard BLE Battery Service (0x180F) and Battery Level characteristic (0x2A19); no extra UUID config is needed. The station waits `PRESSURE_STARTUP_DELAY_MS` (default 5 minutes) after the pump turns on (`vfd` > 0), then polls that endpoint every `PRESSURE_POLL_INTERVAL_MS`, even when no zones are watering.
+The solenoid board reads a BLE pressure sensor on demand via `GET /pressure` (BLE connect/read happens during the HTTP request). Battery level is read from the standard BLE Battery Service (0x180F) and Battery Level characteristic (0x2A19); no extra UUID config is needed. The station polls that endpoint every `PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in `/status`, regardless of pump state.
+
+If the pump is on (`vfd` > 0) and pressure stays below `PRESSURE_LOW_PSI` for `PRESSURE_LOW_ALARM_DURATION_MS`, or above `PRESSURE_HIGH_PSI` for `PRESSURE_HIGH_ALARM_DURATION_MS`, or if battery drops below `PRESSURE_BATTERY_LOW_PCT`, the station POSTs to `VFD_ALERT_URL` with the configured summary strings (same JSON shape as the VFD fault alert).
 
 Raw values below `BLE_PRESSURE_RAW_FLOOR` (default 2000) report 0 psi. Between the two reference points (default 19000→34 psi and 26000→37 psi), psi is linear:
 
 `psi = PSI_REF_LOW + (raw - RAW_REF_LOW) * (PSI_REF_HIGH - PSI_REF_LOW) / (RAW_REF_HIGH - RAW_REF_LOW)`
-
-If pressure stays below `PRESSURE_LOW_PSI` or above `PRESSURE_HIGH_PSI` for `PRESSURE_ALARM_DURATION_MS`, or if battery drops below `PRESSURE_BATTERY_LOW_PCT`, the station POSTs to `VFD_ALERT_URL` with the configured summary strings (same JSON shape as the VFD fault alert).
 
 ### VFD fault input (wifi_station)
 

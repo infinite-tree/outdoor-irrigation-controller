@@ -38,17 +38,25 @@ SPIClass SDSPI(HSPI);
 #ifndef PRESSURE_POLL_INTERVAL_MS
 #define PRESSURE_POLL_INTERVAL_MS 300000
 #endif
-#ifndef PRESSURE_STARTUP_DELAY_MS
-#define PRESSURE_STARTUP_DELAY_MS 300000
-#endif
 #ifndef PRESSURE_LOW_PSI
 #define PRESSURE_LOW_PSI 20.0f
 #endif
 #ifndef PRESSURE_HIGH_PSI
 #define PRESSURE_HIGH_PSI 45.0f
 #endif
-#ifndef PRESSURE_ALARM_DURATION_MS
-#define PRESSURE_ALARM_DURATION_MS 600000
+#ifndef PRESSURE_LOW_ALARM_DURATION_MS
+#ifdef PRESSURE_ALARM_DURATION_MS
+#define PRESSURE_LOW_ALARM_DURATION_MS PRESSURE_ALARM_DURATION_MS
+#else
+#define PRESSURE_LOW_ALARM_DURATION_MS 600000
+#endif
+#endif
+#ifndef PRESSURE_HIGH_ALARM_DURATION_MS
+#ifdef PRESSURE_ALARM_DURATION_MS
+#define PRESSURE_HIGH_ALARM_DURATION_MS PRESSURE_ALARM_DURATION_MS
+#else
+#define PRESSURE_HIGH_ALARM_DURATION_MS 600000
+#endif
 #endif
 #ifndef PRESSURE_BATTERY_LOW_PCT
 #define PRESSURE_BATTERY_LOW_PCT 20
@@ -189,7 +197,6 @@ bool wifiReconnecting = false;
 unsigned long wifiReconnectStarted = 0;
 unsigned long lastInfluxSend = -3000000; // Track last InfluxDB send time
 unsigned long lastPressurePoll = 0;
-unsigned long pressurePumpOnSince = 0;
 unsigned long pressureLowSince = 0;
 unsigned long pressureHighSince = 0;
 bool pressureLowAlertSent = false;
@@ -445,32 +452,7 @@ void reset_pressure_alarm_state() {
 }
 
 void update_pressure_monitoring() {
-  static int prev_vfd_mode = 0;
-  const bool pump_on = vfdMode > 0;
   const unsigned long now = millis();
-
-  if (!pump_on) {
-    prev_vfd_mode = 0;
-    pressurePumpOnSince = 0;
-    lastPressurePoll = 0;
-    reset_pressure_alarm_state();
-    batteryLowAlertSent = false;
-    return;
-  }
-
-  if (prev_vfd_mode == 0) {
-    pressurePumpOnSince = now;
-    lastPressurePoll = 0;
-    reset_pressure_alarm_state();
-    batteryLowAlertSent = false;
-    Serial.println("Pump on; delaying pressure monitoring");
-  }
-  prev_vfd_mode = vfdMode;
-
-  if (now - pressurePumpOnSince < PRESSURE_STARTUP_DELAY_MS) {
-    return;
-  }
-
   if (lastPressurePoll != 0 &&
       now - lastPressurePoll < PRESSURE_POLL_INTERVAL_MS) {
     return;
@@ -499,6 +481,13 @@ void update_pressure_monitoring() {
     Serial.println("%");
   }
 
+  const bool pump_on = vfdMode > 0;
+  if (!pump_on) {
+    reset_pressure_alarm_state();
+    batteryLowAlertSent = false;
+    return;
+  }
+
   char datetime[40];
   format_event_datetime(datetime, sizeof(datetime));
 
@@ -507,7 +496,7 @@ void update_pressure_monitoring() {
       pressureLowSince = now;
     }
     if (!pressureLowAlertSent &&
-        now - pressureLowSince >= PRESSURE_ALARM_DURATION_MS) {
+        now - pressureLowSince >= PRESSURE_LOW_ALARM_DURATION_MS) {
       solenoidPressureLowAlarm = true;
       pressureLowAlertSent = true;
       send_vfd_error_alert(PRESSURE_LOW_SUMMARY, datetime);
@@ -524,7 +513,7 @@ void update_pressure_monitoring() {
       pressureHighSince = now;
     }
     if (!pressureHighAlertSent &&
-        now - pressureHighSince >= PRESSURE_ALARM_DURATION_MS) {
+        now - pressureHighSince >= PRESSURE_HIGH_ALARM_DURATION_MS) {
       solenoidPressureHighAlarm = true;
       pressureHighAlertSent = true;
       send_vfd_error_alert(PRESSURE_HIGH_SUMMARY, datetime);
