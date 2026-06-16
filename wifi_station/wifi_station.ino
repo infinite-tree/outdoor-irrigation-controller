@@ -276,22 +276,6 @@ bool sendDatapointsToInflux() {
   Serial.printf("Send hemp_water_canon to influx. result:");
   Serial.println(success);
 
-  if (solenoidPressureValid) {
-    char pressure_value[24];
-    snprintf(pressure_value, sizeof(pressure_value), "value=%d", (int)solenoidPressurePsi);
-    if (!influx.write("pressure_psi", tags, pressure_value)) success = false;
-    Serial.printf("Send pressure_psi to influx. result:");
-    Serial.println(success);
-  }
-
-  if (solenoidBatteryValid) {
-    char battery_value[16];
-    snprintf(battery_value, sizeof(battery_value), "value=%d", solenoidBatteryPct);
-    if (!influx.write("pressure_battery_pct", tags, battery_value)) success = false;
-    Serial.printf("Send pressure_battery_pct to influx. result:");
-    Serial.println(success);
-  }
-
   return success;
 }
 

@@ -4,6 +4,11 @@
 #include <time.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>
+#include <InfluxArduino.hpp>
+#include <RootCert.h>
+
+#include "lwip/inet.h"
+#include "lwip/dns.h"
 
 #include "Adafruit_GFX.h"
 #include <Fonts/FreeMonoBold9pt7b.h>
@@ -22,6 +27,9 @@
 #endif
 #ifndef DISPLAY_PRESSURE_UPDATE_MS
 #define DISPLAY_PRESSURE_UPDATE_MS 600000
+#endif
+#ifndef INFLUX_DELAY
+#define INFLUX_DELAY 300000
 #endif
 
 #define EDP_BUSY_PIN            48
@@ -62,6 +70,7 @@ GxIO_Class io(SDSPI, EDP_CS_PIN, EDP_DC_PIN, EDP_RSET_PIN);
 GxEPD_Class display(io, EDP_RSET_PIN, EDP_BUSY_PIN);
 
 unsigned long lastDisplayUpdate = 0;
+unsigned long lastInfluxSend = -3000000;
 unsigned long wifiConnectionUpdate = 0;
 bool zone1On = false;
 bool zone2On = false;
@@ -71,8 +80,48 @@ bool webAction = false;
 IPAddress local_IP(SOLENOID_STATIC_IP_0, SOLENOID_STATIC_IP_1, SOLENOID_STATIC_IP_2, SOLENOID_STATIC_IP_3);
 IPAddress gateway(LAN_GATEWAY_0, LAN_GATEWAY_1, LAN_GATEWAY_2, LAN_GATEWAY_3);
 IPAddress subnet(LAN_SUBNET_0, LAN_SUBNET_1, LAN_SUBNET_2, LAN_SUBNET_3);
+IPAddress primaryDNS(LAN_DNS_PRIMARY_0, LAN_DNS_PRIMARY_1, LAN_DNS_PRIMARY_2, LAN_DNS_PRIMARY_3);
 
 WebServer server(80);
+InfluxArduino influx;
+
+void setupInflux() {
+  influx.configure(INFLUX_DATABASE, INFLUX_HOSTNAME);
+  influx.authorize(INFLUX_USER, INFLUX_PASSWORD);
+  influx.addCertificate(ROOT_CERT);
+}
+
+bool sendPressureToInflux() {
+  if (!ble_pressure_enabled() || !ble_pressure_has_cache()) {
+    return true;
+  }
+
+  BlePressureReading reading = ble_pressure_get_cached();
+  if (!reading.ok) {
+    return false;
+  }
+
+  const char *tags = "location=main-pump,sensor=solenoid-pressure";
+  bool success = true;
+
+  char pressure_value[16];
+  snprintf(pressure_value, sizeof(pressure_value), "value=%d", (int)reading.psi);
+  if (!influx.write("pressure_psi", tags, pressure_value)) {
+    success = false;
+  }
+  Serial.printf("Send pressure_psi to influx. result: %d\n", success);
+
+  if (reading.battery_valid) {
+    char battery_value[16];
+    snprintf(battery_value, sizeof(battery_value), "value=%d", reading.battery_pct);
+    if (!influx.write("pressure_battery_pct", tags, battery_value)) {
+      success = false;
+    }
+    Serial.printf("Send pressure_battery_pct to influx. result: %d\n", success);
+  }
+
+  return success;
+}
 
 void open_solenoid(uint8_t zone) {
   if (zone == ZONE1) {
@@ -179,7 +228,7 @@ void update_display_status() {
 
   display.setCursor(90, 95);
   display.println("Battery:");
-  display.setCursor(170, 95);
+  display.setCursor(182, 95);
   display.println(battery_text);
 
   display.update();
@@ -206,7 +255,7 @@ void init_display() {
 void init_wifi() {
   Serial.print("Connecting to wifi ");
 
-  if (!WiFi.config(local_IP, gateway, subnet)) {
+  if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, primaryDNS)) {
     Serial.println("STA Failed to configure");
   }
 
@@ -238,6 +287,7 @@ void setup() {
   tzset();
 
   init_wifi();
+  setupInflux();
   ble_pressure_init();
   web_server_init();
 
@@ -268,5 +318,14 @@ void loop() {
       millis() - lastDisplayUpdate > display_interval) {
     webAction = false;
     update_display_status();
+  }
+
+  if (millis() - lastInfluxSend > INFLUX_DELAY) {
+    lastInfluxSend = millis();
+    Serial.println("Sending pressure data to influx...");
+    if (!sendPressureToInflux()) {
+      Serial.println("Failed to send pressure data to InfluxDB");
+      Serial.println(influx.getResponse());
+    }
   }
 }

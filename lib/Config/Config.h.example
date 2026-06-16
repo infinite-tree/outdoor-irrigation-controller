@@ -35,7 +35,8 @@
 // Station uses this host to call the solenoid HTTP API
 #define SOLENOID_HTTP_HOST  "192.168.2.218"
 
-// InfluxDB (wifi_station only)
+// InfluxDB (both boards). Solenoid sends pressure_psi and pressure_battery_pct;
+// station sends pump/zone telemetry.
 #define INFLUX_DATABASE     "infinitestats"
 #define INFLUX_HOSTNAME     "stats.infinite-tree.com"
 #define INFLUX_USER         "sensor"

@@ -23,7 +23,7 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `SOLENOID_HTTP_HOST` | wifi_station | Hostname/IP for solenoid HTTP API |
 | `LAN_GATEWAY_*`, `LAN_SUBNET_*`, `LAN_DNS_PRIMARY_*` | both | Shared network settings |
 | `WIFI_SSID`, `WIFI_PASSWORD` | both | WiFi credentials |
-| `INFLUX_*` | wifi_station | InfluxDB telemetry |
+| `INFLUX_*` | both | InfluxDB telemetry (solenoid: pressure; station: pump/zones) |
 | `VFD_ALERT_URL` | wifi_station | POST target when Frenic fault input activates (empty = disabled) |
 | `VFD_ERROR_SUMMARY` | wifi_station | `error_summary` field in that POST body |
 | `BLE_PRESSURE_*` | wifi_solenoid | BLE device UUIDs and linear pressure scale (empty device id = disabled); see `lib/BlePressureSensor` |
@@ -31,7 +31,7 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
 
-The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`, default 10 minutes) and includes the cached result in `GET /status` as `pressure_psi` and `pressure_battery_pct`. The e-paper display refreshes when zones change, when a new BLE read completes, or every `DISPLAY_PRESSURE_UPDATE_MS` as a fallback. Station polling does not drive the solenoid display or BLE reads — it only reads the solenoid cache via `/status`. Battery level uses the standard Bluetooth SIG Battery Service (0x180F / 0x2A19). The station polls solenoid `/status` every `PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in its own `/status`, regardless of pump state.
+The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`, default 10 minutes) and posts `pressure_psi` and `pressure_battery_pct` to InfluxDB every `INFLUX_DELAY`. It includes the cached result in `GET /status` as well. The e-paper display refreshes when zones change, when a new BLE read completes, or every `DISPLAY_PRESSURE_UPDATE_MS` as a fallback. Station polling does not drive the solenoid display or BLE reads — it only reads the solenoid cache via `/status` for alarms and its web UI. Battery level uses the standard Bluetooth SIG Battery Service (0x180F / 0x2A19). The station polls solenoid `/status` every `PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in its own `/status`, regardless of pump state.
 
 If the pump is on (`vfd` > 0) and pressure stays below `PRESSURE_LOW_PSI` for `PRESSURE_LOW_ALARM_DURATION_MS`, or above `PRESSURE_HIGH_PSI` for `PRESSURE_HIGH_ALARM_DURATION_MS`, or if battery drops below `PRESSURE_BATTERY_LOW_PCT`, the station POSTs to `VFD_ALERT_URL` with the configured summary strings (same JSON shape as the VFD fault alert).
 
