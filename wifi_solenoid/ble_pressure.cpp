@@ -13,9 +13,6 @@
 #ifndef BLE_PRESSURE_CHAR_UUID
 #define BLE_PRESSURE_CHAR_UUID ""
 #endif
-#ifndef BLE_PRESSURE_BATTERY_CHAR_UUID
-#define BLE_PRESSURE_BATTERY_CHAR_UUID ""
-#endif
 #ifndef BLE_PRESSURE_RAW_FLOOR
 #define BLE_PRESSURE_RAW_FLOOR 2000
 #endif
@@ -34,6 +31,10 @@
 
 #define BLE_CONNECT_TIMEOUT_MS 8000
 #define BLE_READ_TIMEOUT_MS    5000
+
+// Bluetooth SIG Battery Service (0x180F) and Battery Level characteristic (0x2A19).
+#define BLE_BATTERY_SERVICE_UUID      ((uint16_t)0x180F)
+#define BLE_BATTERY_LEVEL_CHAR_UUID   ((uint16_t)0x2A19)
 
 static bool ble_initialized = false;
 static NimBLEClient *ble_client = nullptr;
@@ -94,18 +95,14 @@ static bool connect_to_sensor() {
 }
 
 static bool read_battery_percent(int *battery_pct) {
-  if (BLE_PRESSURE_BATTERY_CHAR_UUID[0] == '\0') {
-    return false;
-  }
-
   NimBLERemoteService *service =
-      ble_client->getService(NimBLEUUID(BLE_PRESSURE_SERVICE_UUID));
+      ble_client->getService(NimBLEUUID(BLE_BATTERY_SERVICE_UUID));
   if (service == nullptr) {
     return false;
   }
 
   NimBLERemoteCharacteristic *battery_char =
-      service->getCharacteristic(NimBLEUUID(BLE_PRESSURE_BATTERY_CHAR_UUID));
+      service->getCharacteristic(NimBLEUUID(BLE_BATTERY_LEVEL_CHAR_UUID));
   if (battery_char == nullptr || !battery_char->canRead()) {
     return false;
   }
@@ -115,12 +112,7 @@ static bool read_battery_percent(int *battery_pct) {
     return false;
   }
 
-  if (value.size() >= 2) {
-    *battery_pct = (uint8_t)value[0] | ((uint8_t)value[1] << 8);
-  } else {
-    *battery_pct = (uint8_t)value[0];
-  }
-
+  *battery_pct = (uint8_t)value[0];
   if (*battery_pct > 100) {
     *battery_pct = 100;
   }

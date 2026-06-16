@@ -51,7 +51,7 @@
 #define BLE_PRESSURE_DEVICE_ID          ""
 #define BLE_PRESSURE_SERVICE_UUID         ""
 #define BLE_PRESSURE_CHAR_UUID            ""
-#define BLE_PRESSURE_BATTERY_CHAR_UUID    ""
+// Battery level uses the standard BLE Battery Service (0x180F) / Battery Level (0x2A19).
 // Linear scale: raw values below RAW_FLOOR report 0 psi. Between the two reference
 // points, psi = PSI_REF_LOW + (raw - RAW_REF_LOW) * (PSI_REF_HIGH - PSI_REF_LOW)
 // / (RAW_REF_HIGH - RAW_REF_LOW). Calibrated from 19000=34 psi and 26000=37 psi.
