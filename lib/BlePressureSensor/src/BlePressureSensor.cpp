@@ -1,6 +1,7 @@
 #include "BlePressureSensor.h"
 
 #include <NimBLEDevice.h>
+#include <math.h>
 #include <string>
 
 #if defined(ESP_PLATFORM)
@@ -57,7 +58,10 @@ float BlePressureSensor::rawToPsi(uint16_t raw, const BlePressureConfig &config)
   const float psi = config.psi_ref_low +
                     ((float)((int32_t)raw - config.raw_ref_low) * psi_span) /
                         (float)raw_span;
-  return psi < 0.0f ? 0.0f : psi;
+  if (psi < 0.0f) {
+    return 0.0f;
+  }
+  return (float)lroundf(psi);
 }
 
 BlePressureReading BlePressureSensor::makeError(const char *message) {

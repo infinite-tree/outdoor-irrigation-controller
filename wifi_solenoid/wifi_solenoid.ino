@@ -160,7 +160,7 @@ void update_display_status() {
   if (ble_pressure_enabled() && ble_pressure_has_cache()) {
     BlePressureReading reading = ble_pressure_get_cached();
     if (reading.ok) {
-      snprintf(pressure_text, sizeof(pressure_text), "%.1f psi", reading.psi);
+      snprintf(pressure_text, sizeof(pressure_text), "%d psi", (int)reading.psi);
       if (reading.battery_valid) {
         snprintf(battery_text, sizeof(battery_text), "%d%%", reading.battery_pct);
       } else {
@@ -173,8 +173,8 @@ void update_display_status() {
   }
 
   display.setCursor(90, 75);
-  display.println("Pressure:");
-  display.setCursor(170, 75);
+  display.println("Press:");
+  display.setCursor(182, 75);
   display.println(pressure_text);
 
   display.setCursor(90, 95);

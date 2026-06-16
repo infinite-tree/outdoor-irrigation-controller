@@ -212,7 +212,7 @@ static void web_handle_get_status() {
   doc["vfd"] = vfdMode;
   doc["pressure_valid"] = solenoidPressureValid;
   if (solenoidPressureValid) {
-    doc["pressure_psi"] = solenoidPressurePsi;
+    doc["pressure_psi"] = (int)solenoidPressurePsi;
   }
   if (solenoidBatteryValid) {
     doc["pressure_battery_pct"] = solenoidBatteryPct;

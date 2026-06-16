@@ -35,7 +35,7 @@ static void append_pressure_json(JsonDocument &doc) {
   BlePressureReading reading = ble_pressure_get_cached();
   doc["pressure_valid"] = reading.ok;
   if (reading.ok) {
-    doc["pressure_psi"] = reading.psi;
+    doc["pressure_psi"] = (int)reading.psi;
     if (reading.battery_valid) {
       doc["pressure_battery_pct"] = reading.battery_pct;
     }

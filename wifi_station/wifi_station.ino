@@ -278,7 +278,7 @@ bool sendDatapointsToInflux() {
 
   if (solenoidPressureValid) {
     char pressure_value[24];
-    snprintf(pressure_value, sizeof(pressure_value), "value=%.2f", solenoidPressurePsi);
+    snprintf(pressure_value, sizeof(pressure_value), "value=%d", (int)solenoidPressurePsi);
     if (!influx.write("pressure_psi", tags, pressure_value)) success = false;
     Serial.printf("Send pressure_psi to influx. result:");
     Serial.println(success);
@@ -494,7 +494,7 @@ void update_pressure_monitoring() {
   }
 
   Serial.print("Solenoid pressure ");
-  Serial.print(sample.psi, 2);
+  Serial.print((int)sample.psi);
   Serial.println(" psi");
   if (sample.battery_valid) {
     Serial.print("Solenoid sensor battery ");

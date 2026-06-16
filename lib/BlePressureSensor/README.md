@@ -53,7 +53,7 @@ void setup() {
 void loop() {
   BlePressureReading reading = sensor.read();
   if (reading.ok) {
-    Serial.printf("Pressure: %.2f psi (raw %u)\n", reading.psi, reading.raw);
+    Serial.printf("Pressure: %d psi (raw %u)\n", (int)reading.psi, reading.raw);
     if (reading.battery_valid) {
       Serial.printf("Battery: %d%%\n", reading.battery_pct);
     }
