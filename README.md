@@ -31,7 +31,7 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
 
-The solenoid board reads a BLE pressure sensor on demand via `GET /pressure` (BLE connect/read happens during the HTTP request). Battery level is read from the standard BLE Battery Service (0x180F) and Battery Level characteristic (0x2A19); no extra UUID config is needed. The station polls that endpoint every `PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in `/status`, regardless of pump state.
+The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`) and includes the cached result in `GET /status` as `pressure_psi` and `pressure_battery_pct`. Battery level uses the standard Bluetooth SIG Battery Service (0x180F / 0x2A19). The station polls solenoid `/status` every `PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in its own `/status`, regardless of pump state.
 
 If the pump is on (`vfd` > 0) and pressure stays below `PRESSURE_LOW_PSI` for `PRESSURE_LOW_ALARM_DURATION_MS`, or above `PRESSURE_HIGH_PSI` for `PRESSURE_HIGH_ALARM_DURATION_MS`, or if battery drops below `PRESSURE_BATTERY_LOW_PCT`, the station POSTs to `VFD_ALERT_URL` with the configured summary strings (same JSON shape as the VFD fault alert).
 
@@ -70,7 +70,7 @@ To regenerate the bitmap:
 Edit files under each project’s `web/` folder (`index.html`, `style.css`, `app.js`). A pre-build step embeds them into `web_assets.h` as PROGMEM. HTTP routes and JSON live in `web_ui.cpp`; hardware and irrigation logic stay in the `.ino` files.
 
 - **wifi_station** — timer, zone status, watering history
-- **wifi_solenoid** — zone 1/2 on/off (`GET /status`, `POST /set_zone` with `zone1` and `zone2`), BLE pressure read (`GET /pressure`)
+- **wifi_solenoid** — zone 1/2 on/off (`GET /status` includes pressure, `POST /set_zone` with `zone1` and `zone2`)
 
 ## Libraries
 

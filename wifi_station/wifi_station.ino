@@ -418,8 +418,8 @@ bool send_vfd_error_alert(const char *summary, const char *datetime) {
   return success;
 }
 
-bool fetch_pressure_from_solenoid(SolenoidPressureSample *sample) {
-  String url = "http://" + String(SOLENOID_HTTP_HOST) + "/pressure";
+bool fetch_solenoid_status(SolenoidPressureSample *sample) {
+  String url = "http://" + String(SOLENOID_HTTP_HOST) + "/status";
   HTTPClient http;
 
   http.setTimeout(SOLENOID_HTTP_TIMEOUT_MS);
@@ -428,7 +428,7 @@ bool fetch_pressure_from_solenoid(SolenoidPressureSample *sample) {
 
   int httpResponseCode = http.GET();
   if (httpResponseCode != 200) {
-    Serial.print("Pressure poll failed with code: ");
+    Serial.print("Solenoid status poll failed with code: ");
     Serial.println(httpResponseCode);
     http.end();
     sample->ok = false;
@@ -440,23 +440,28 @@ bool fetch_pressure_from_solenoid(SolenoidPressureSample *sample) {
   http.end();
 
   if (error) {
-    Serial.print("Pressure poll JSON parse failed: ");
+    Serial.print("Solenoid status JSON parse failed: ");
     Serial.println(error.c_str());
     sample->ok = false;
     return false;
   }
 
-  sample->ok = doc["ok"] | false;
+  if (!(doc["pressure_enabled"] | false)) {
+    sample->ok = false;
+    return true;
+  }
+
+  sample->ok = doc["pressure_valid"] | false;
   if (!sample->ok) {
-    const char *message = doc["error"] | "unknown error";
-    Serial.print("Pressure poll error: ");
+    const char *message = doc["pressure_error"] | "unknown error";
+    Serial.print("Solenoid pressure error: ");
     Serial.println(message);
     return false;
   }
 
   sample->psi = doc["pressure_psi"] | 0.0f;
-  sample->battery_valid = !doc["battery_pct"].isNull();
-  sample->battery_pct = sample->battery_valid ? doc["battery_pct"].as<int>() : -1;
+  sample->battery_valid = !doc["pressure_battery_pct"].isNull();
+  sample->battery_pct = sample->battery_valid ? doc["pressure_battery_pct"].as<int>() : -1;
   return true;
 }
 
@@ -476,7 +481,7 @@ void update_pressure_monitoring() {
   lastPressurePoll = now;
 
   SolenoidPressureSample sample;
-  if (!fetch_pressure_from_solenoid(&sample) || !sample.ok) {
+  if (!fetch_solenoid_status(&sample) || !sample.ok) {
     solenoidPressureValid = false;
     return;
   }

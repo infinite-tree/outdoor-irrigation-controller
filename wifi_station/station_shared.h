@@ -55,7 +55,7 @@ struct SolenoidPressureSample {
   bool battery_valid;
 };
 
-bool fetch_pressure_from_solenoid(SolenoidPressureSample *sample);
+bool fetch_solenoid_status(SolenoidPressureSample *sample);
 void update_pressure_monitoring();
 
 void format_millis(unsigned long milliseconds, char *buffer);

@@ -60,8 +60,9 @@
 #define BLE_PRESSURE_PSI_REF_LOW          34.0f
 #define BLE_PRESSURE_RAW_REF_HIGH         26000
 #define BLE_PRESSURE_PSI_REF_HIGH         37.0f
+#define BLE_PRESSURE_REFRESH_MS           60000   // 1 minute between BLE reads on solenoid
 
-// Pressure monitoring (wifi_station only). Polls solenoid /pressure on an interval.
+// Pressure monitoring (wifi_station only). Polls solenoid /status on an interval.
 #define PRESSURE_POLL_INTERVAL_MS         300000   // 5 minutes
 #define PRESSURE_LOW_PSI                  20.0f
 #define PRESSURE_HIGH_PSI                 45.0f

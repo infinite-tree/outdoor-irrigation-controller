@@ -17,6 +17,10 @@
 #include "solenoid_shared.h"
 #include "ble_pressure.h"
 
+#ifndef BLE_PRESSURE_REFRESH_MS
+#define BLE_PRESSURE_REFRESH_MS 60000
+#endif
+
 #define EDP_BUSY_PIN            48
 #define EDP_RSET_PIN            47
 #define EDP_DC_PIN              16
@@ -151,7 +155,8 @@ void update_display_status() {
   char pressure_text[16] = "N/A";
   char battery_text[8] = "N/A";
   if (ble_pressure_enabled()) {
-    BlePressureReading reading = ble_pressure_read();
+    ble_pressure_refresh_if_stale(BLE_PRESSURE_REFRESH_MS, true);
+    BlePressureReading reading = ble_pressure_get_cached();
     if (reading.ok) {
       snprintf(pressure_text, sizeof(pressure_text), "%.1f psi", reading.psi);
       if (reading.battery_valid) {
@@ -239,6 +244,8 @@ void setup() {
 
 void loop() {
   server.handleClient();
+
+  ble_pressure_refresh_if_stale(BLE_PRESSURE_REFRESH_MS);
 
   if (millis() - wifiConnectionUpdate > WIFI_CONNECTION_MILLIS) {
     wifiConnectionUpdate = millis();
