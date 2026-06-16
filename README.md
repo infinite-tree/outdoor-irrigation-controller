@@ -31,7 +31,7 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
 
-The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`) and includes the cached result in `GET /status` as `pressure_psi` and `pressure_battery_pct`. Battery level uses the standard Bluetooth SIG Battery Service (0x180F / 0x2A19). The station polls solenoid `/status` every `PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in its own `/status`, regardless of pump state.
+The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`, default 10 minutes) and includes the cached result in `GET /status` as `pressure_psi` and `pressure_battery_pct`. The e-paper display refreshes when zones change, when a new BLE read completes, or every `DISPLAY_PRESSURE_UPDATE_MS` as a fallback. Station polling does not drive the solenoid display or BLE reads — it only reads the solenoid cache via `/status`. Battery level uses the standard Bluetooth SIG Battery Service (0x180F / 0x2A19). The station polls solenoid `/status` every `PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in its own `/status`, regardless of pump state.
 
 If the pump is on (`vfd` > 0) and pressure stays below `PRESSURE_LOW_PSI` for `PRESSURE_LOW_ALARM_DURATION_MS`, or above `PRESSURE_HIGH_PSI` for `PRESSURE_HIGH_ALARM_DURATION_MS`, or if battery drops below `PRESSURE_BATTERY_LOW_PCT`, the station POSTs to `VFD_ALERT_URL` with the configured summary strings (same JSON shape as the VFD fault alert).
 

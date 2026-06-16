@@ -27,7 +27,7 @@
 #define BLE_PRESSURE_PSI_REF_HIGH 37.0f
 #endif
 #ifndef BLE_PRESSURE_REFRESH_MS
-#define BLE_PRESSURE_REFRESH_MS 60000
+#define BLE_PRESSURE_REFRESH_MS 600000
 #endif
 
 static BlePressureSensor ble_pressure_sensor;
@@ -58,19 +58,20 @@ void ble_pressure_init() {
   ble_pressure_sensor.begin(ble_pressure_config_from_build());
 }
 
-void ble_pressure_refresh_if_stale(unsigned long max_age_ms, bool force) {
+bool ble_pressure_refresh_if_stale(unsigned long max_age_ms, bool force) {
   if (!ble_pressure_enabled()) {
-    return;
+    return false;
   }
 
   const unsigned long now = millis();
   if (!force && cache_valid && (now - last_ble_read) < max_age_ms) {
-    return;
+    return false;
   }
 
   cached_reading = ble_pressure_sensor.read();
   last_ble_read = now;
   cache_valid = true;
+  return true;
 }
 
 BlePressureReading ble_pressure_get_cached() {

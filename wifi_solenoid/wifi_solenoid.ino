@@ -18,7 +18,10 @@
 #include "ble_pressure.h"
 
 #ifndef BLE_PRESSURE_REFRESH_MS
-#define BLE_PRESSURE_REFRESH_MS 60000
+#define BLE_PRESSURE_REFRESH_MS 600000
+#endif
+#ifndef DISPLAY_PRESSURE_UPDATE_MS
+#define DISPLAY_PRESSURE_UPDATE_MS 600000
 #endif
 
 #define EDP_BUSY_PIN            48
@@ -154,8 +157,7 @@ void update_display_status() {
 
   char pressure_text[16] = "N/A";
   char battery_text[8] = "N/A";
-  if (ble_pressure_enabled()) {
-    ble_pressure_refresh_if_stale(BLE_PRESSURE_REFRESH_MS, true);
+  if (ble_pressure_enabled() && ble_pressure_has_cache()) {
     BlePressureReading reading = ble_pressure_get_cached();
     if (reading.ok) {
       snprintf(pressure_text, sizeof(pressure_text), "%.1f psi", reading.psi);
@@ -245,7 +247,11 @@ void setup() {
 void loop() {
   server.handleClient();
 
-  ble_pressure_refresh_if_stale(BLE_PRESSURE_REFRESH_MS);
+  const bool pressure_refreshed =
+      ble_pressure_refresh_if_stale(BLE_PRESSURE_REFRESH_MS);
+  const unsigned long display_interval = ble_pressure_enabled()
+                                             ? DISPLAY_PRESSURE_UPDATE_MS
+                                             : DISPLAY_UPDATE_MILLIS;
 
   if (millis() - wifiConnectionUpdate > WIFI_CONNECTION_MILLIS) {
     wifiConnectionUpdate = millis();
@@ -258,7 +264,8 @@ void loop() {
     }
   }
 
-  if (webAction || millis() - lastDisplayUpdate > DISPLAY_UPDATE_MILLIS) {
+  if (webAction || pressure_refreshed ||
+      millis() - lastDisplayUpdate > display_interval) {
     webAction = false;
     update_display_status();
   }
