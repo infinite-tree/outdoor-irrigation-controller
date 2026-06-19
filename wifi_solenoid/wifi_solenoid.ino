@@ -92,14 +92,11 @@ void setupInflux() {
 }
 
 bool sendPressureToInflux() {
-  if (!ble_pressure_enabled() || !ble_pressure_has_cache()) {
+  if (!ble_pressure_enabled() || !ble_pressure_is_fresh()) {
     return true;
   }
 
   BlePressureReading reading = ble_pressure_get_cached();
-  if (!reading.ok) {
-    return false;
-  }
 
   const char *tags = "location=main-pump,sensor=solenoid-pressure";
   bool success = true;
@@ -208,15 +205,14 @@ void update_display_status() {
   char battery_text[8] = "N/A";
   if (ble_pressure_enabled() && ble_pressure_has_cache()) {
     BlePressureReading reading = ble_pressure_get_cached();
-    if (reading.ok) {
-      snprintf(pressure_text, sizeof(pressure_text), "%d psi", (int)reading.psi);
-      if (reading.battery_valid) {
-        snprintf(battery_text, sizeof(battery_text), "%d%%", reading.battery_pct);
-      } else {
-        strcpy(battery_text, "--");
-      }
+    if (ble_pressure_is_stale()) {
+      snprintf(pressure_text, sizeof(pressure_text), "~%d psi", (int)reading.psi);
     } else {
-      strcpy(pressure_text, "--");
+      snprintf(pressure_text, sizeof(pressure_text), "%d psi", (int)reading.psi);
+    }
+    if (reading.battery_valid) {
+      snprintf(battery_text, sizeof(battery_text), "%d%%", reading.battery_pct);
+    } else {
       strcpy(battery_text, "--");
     }
   }
@@ -289,16 +285,16 @@ void setup() {
   init_wifi();
   setupInflux();
   ble_pressure_init();
+  ble_pressure_start_task();
   web_server_init();
 
   update_display_status();
 }
 
 void loop() {
-  server.handleClient();
+  web_server_poll();
 
-  const bool pressure_refreshed =
-      ble_pressure_refresh_if_stale(BLE_PRESSURE_REFRESH_MS);
+  const bool pressure_refreshed = ble_pressure_take_display_dirty();
   const unsigned long display_interval = ble_pressure_enabled()
                                              ? DISPLAY_PRESSURE_UPDATE_MS
                                              : DISPLAY_UPDATE_MILLIS;

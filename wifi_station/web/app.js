@@ -232,8 +232,30 @@
     }
   }
 
+  function renderPressure(s) {
+    const wrap = document.getElementById('now-pressure');
+    const val = document.getElementById('now-pressure-val');
+    if (!wrap || !val) {
+      return;
+    }
+    wrap.classList.remove('pressure-alarm', 'pressure-stale');
+    if ((s.pressure_valid || s.pressure_stale) && s.pressure_psi != null) {
+      const prefix = s.pressure_stale ? '~' : '';
+      val.textContent = prefix + s.pressure_psi + ' psi';
+      if (s.pressure_stale) {
+        wrap.classList.add('pressure-stale');
+      }
+      if (s.pressure_low_alarm || s.pressure_high_alarm) {
+        wrap.classList.add('pressure-alarm');
+      }
+    } else {
+      val.textContent = '—';
+    }
+  }
+
   function renderStatus(s) {
     renderClock(s.clock);
+    renderPressure(s);
     document.getElementById('now-main').textContent = s.now_main || '—';
     document.getElementById('now-sub').textContent = s.now_sub || '';
 

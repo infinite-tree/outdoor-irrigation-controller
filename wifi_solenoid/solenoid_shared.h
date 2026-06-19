@@ -14,3 +14,4 @@ extern bool webAction;
 void open_solenoid(uint8_t zone);
 void close_solenoid(uint8_t zone);
 void web_server_init();
+void web_server_poll();

@@ -10,41 +10,35 @@
 
 #define BLE_BATTERY_SERVICE_UUID ((uint16_t)0x180F)
 #define BLE_BATTERY_LEVEL_CHAR_UUID ((uint16_t)0x2A19)
-#define BLE_SCAN_DURATION_SEC 10
 
 BlePressureSensor::BlePressureSensor() : initialized_(false), client_(nullptr) {}
 
 bool BlePressureSensor::enabled() const {
-  return config_.service_uuid != nullptr && config_.service_uuid[0] != '\0' &&
+  return config_.device_id != nullptr && config_.device_id[0] != '\0' &&
+         config_.service_uuid != nullptr && config_.service_uuid[0] != '\0' &&
          config_.characteristic_uuid != nullptr &&
          config_.characteristic_uuid[0] != '\0';
 }
 
 bool BlePressureSensor::isInitialized() const { return initialized_; }
 
-bool BlePressureSensor::isPlaceholderDeviceId(const char *device_id) {
-  if (device_id == nullptr || device_id[0] == '\0') {
-    return true;
-  }
-
-  static const char placeholder[] = "AA:BB:CC:DD:EE:FF";
-  for (size_t i = 0; i < sizeof(placeholder) - 1; i++) {
-    char a = device_id[i];
-    char b = placeholder[i];
-    if (a >= 'a' && a <= 'f') {
-      a = (char)(a - 'a' + 'A');
-    }
-    if (b >= 'a' && b <= 'f') {
-      b = (char)(b - 'a' + 'A');
-    }
-    if (a != b) {
-      return false;
-    }
-  }
-  return device_id[sizeof(placeholder) - 1] == '\0';
-}
-
 float BlePressureSensor::rawToPsi(uint16_t raw, const BlePressureConfig &config) {
+  if (config.scale_tenths) {
+    const int16_t raw_signed = (int16_t)raw;
+    float psi = (float)raw_signed / config.raw_tenths_divisor;
+    if (config.psi_max > 0.0f && psi > config.psi_max) {
+      psi = config.psi_max;
+    }
+    if (psi < config.psi_min) {
+      psi = config.psi_min;
+    }
+    return (float)lroundf(psi);
+  }
+
+  if (config.raw_zero_sentinel != 0 && raw == config.raw_zero_sentinel) {
+    return 0.0f;
+  }
+
   if (raw < config.raw_floor) {
     return 0.0f;
   }
@@ -80,6 +74,40 @@ void BlePressureSensor::begin(const BlePressureConfig &config) {
   initialized_ = true;
 }
 
+void BlePressureSensor::resetStack() {
+  Serial.println("BLE pressure stack reset");
+
+  if (client_ != nullptr) {
+    NimBLEClient *client = static_cast<NimBLEClient *>(client_);
+    if (client->isConnected()) {
+      client->disconnect();
+      delay(150);
+    }
+    NimBLEDevice::deleteClient(client);
+    client_ = nullptr;
+  }
+
+  if (initialized_) {
+    NimBLEDevice::deinit(true);
+    initialized_ = false;
+  }
+
+  delay(500);
+  begin(config_);
+}
+
+void BlePressureSensor::ensureDisconnected() {
+  if (client_ == nullptr) {
+    return;
+  }
+
+  NimBLEClient *client = static_cast<NimBLEClient *>(client_);
+  if (client->isConnected()) {
+    client->disconnect();
+    delay(100);
+  }
+}
+
 static void preferBleRadio() {
 #if defined(ESP_PLATFORM)
   esp_coex_preference_set(ESP_COEX_PREFER_BT);
@@ -99,41 +127,9 @@ bool BlePressureSensor::connectByAddress(uint8_t address_type) {
   const bool connected = client->connect(address);
   if (!connected) {
     Serial.println("BLE address connect failed");
+    ensureDisconnected();
   }
   return connected;
-}
-
-bool BlePressureSensor::connectByScan() {
-  NimBLEClient *client = static_cast<NimBLEClient *>(client_);
-  NimBLEScan *scan = NimBLEDevice::getScan();
-  scan->setActiveScan(true);
-  scan->setDuplicateFilter(true);
-
-  Serial.print("BLE scanning ");
-  Serial.print(BLE_SCAN_DURATION_SEC);
-  Serial.print("s for service ");
-  Serial.println(config_.service_uuid);
-
-  preferBleRadio();
-  const NimBLEUUID service_uuid(config_.service_uuid);
-  const NimBLEScanResults results = scan->getResults(BLE_SCAN_DURATION_SEC, false);
-
-  for (int i = 0; i < results.getCount(); i++) {
-    const NimBLEAdvertisedDevice *device = results.getDevice(i);
-    if (device == nullptr || !device->isAdvertisingService(service_uuid)) {
-      continue;
-    }
-
-    Serial.print("BLE scan found sensor at ");
-    Serial.println(device->getAddress().toString().c_str());
-    if (client->connect(device)) {
-      return true;
-    }
-    Serial.println("BLE connect to scanned device failed");
-  }
-
-  Serial.println("BLE scan found no matching sensor");
-  return false;
 }
 
 bool BlePressureSensor::connect() {
@@ -141,25 +137,16 @@ bool BlePressureSensor::connect() {
     return false;
   }
 
-  NimBLEClient *client = static_cast<NimBLEClient *>(client_);
-  if (client->isConnected()) {
+  ensureDisconnected();
+
+  if (connectByAddress(config_.address_type)) {
     return true;
   }
-
-  if (!isPlaceholderDeviceId(config_.device_id)) {
-    if (connectByAddress(config_.address_type)) {
-      return true;
-    }
-    if (config_.address_type != BLE_ADDR_RANDOM &&
-        connectByAddress(BLE_ADDR_RANDOM)) {
-      return true;
-    }
-    Serial.println("BLE falling back to service scan");
-  } else {
-    Serial.println("BLE device id is placeholder; scanning for sensor");
+  if (config_.address_type != BLE_ADDR_RANDOM &&
+      connectByAddress(BLE_ADDR_RANDOM)) {
+    return true;
   }
-
-  return connectByScan();
+  return false;
 }
 
 bool BlePressureSensor::readBatteryPercent(int *battery_pct) {
@@ -188,15 +175,7 @@ bool BlePressureSensor::readBatteryPercent(int *battery_pct) {
   return true;
 }
 
-BlePressureReading BlePressureSensor::read() {
-  if (!enabled()) {
-    return makeError("BLE pressure sensor not configured");
-  }
-
-  if (!initialized_) {
-    begin(config_);
-  }
-
+BlePressureReading BlePressureSensor::readOnce() {
   if (!connect()) {
     return makeError("BLE connect failed");
   }
@@ -205,24 +184,28 @@ BlePressureReading BlePressureSensor::read() {
   NimBLERemoteService *service =
       client->getService(NimBLEUUID(config_.service_uuid));
   if (service == nullptr) {
-    client->disconnect();
+    ensureDisconnected();
     return makeError("BLE service not found");
   }
 
   NimBLERemoteCharacteristic *pressure_char =
       service->getCharacteristic(NimBLEUUID(config_.characteristic_uuid));
   if (pressure_char == nullptr || !pressure_char->canRead()) {
-    client->disconnect();
+    ensureDisconnected();
     return makeError("BLE pressure characteristic not found");
   }
 
   std::string value = pressure_char->readValue();
   if (value.size() < 2) {
-    client->disconnect();
+    ensureDisconnected();
     return makeError("BLE pressure value too short");
   }
 
-  const uint16_t raw = (uint8_t)value[0] | ((uint8_t)value[1] << 8);
+  const uint16_t raw =
+      config_.big_endian
+          ? (uint16_t)(((uint16_t)(uint8_t)value[0] << 8) | (uint8_t)value[1])
+          : (uint16_t)((uint8_t)value[0] | ((uint16_t)(uint8_t)value[1] << 8));
+  const int16_t raw_signed = (int16_t)raw;
 
   BlePressureReading reading;
   reading.ok = true;
@@ -232,6 +215,54 @@ BlePressureReading BlePressureSensor::read() {
   reading.battery_valid = readBatteryPercent(&reading.battery_pct);
   reading.error = nullptr;
 
-  client->disconnect();
+  Serial.print("BLE pressure bytes");
+  for (size_t i = 0; i < value.size() && i < 8; i++) {
+    Serial.printf(" %02X", (uint8_t)value[i]);
+  }
+  Serial.printf(" -> raw=0x%04X (%d) psi=%d\n", raw, (int)raw_signed,
+                (int)reading.psi);
+
+  ensureDisconnected();
   return reading;
+}
+
+BlePressureReading BlePressureSensor::read() {
+  if (!enabled()) {
+    return makeError("BLE pressure sensor not configured");
+  }
+
+  if (!initialized_) {
+    begin(config_);
+  }
+
+  const uint8_t max_retries = config_.max_retries < 1 ? 1 : config_.max_retries;
+  BlePressureReading last_error = makeError("BLE read failed");
+
+  for (uint8_t attempt = 0; attempt < max_retries; attempt++) {
+    if (attempt > 0) {
+      Serial.print("BLE pressure attempt ");
+      Serial.print(attempt + 1);
+      Serial.print("/");
+      Serial.println(max_retries);
+      ensureDisconnected();
+      delay(config_.retry_delay_ms);
+    }
+
+    BlePressureReading result = readOnce();
+    if (result.ok) {
+      if (attempt > 0) {
+        Serial.println("BLE pressure read recovered");
+      }
+      return result;
+    }
+
+    last_error = result;
+    if (result.error != nullptr) {
+      Serial.print("BLE pressure read failed: ");
+      Serial.println(result.error);
+    }
+    ensureDisconnected();
+  }
+
+  return last_error;
 }

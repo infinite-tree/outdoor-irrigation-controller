@@ -211,7 +211,8 @@ static void web_handle_get_status() {
   doc["remote_signal_on"] = remoteSignalOn;
   doc["vfd"] = vfdMode;
   doc["pressure_valid"] = solenoidPressureValid;
-  if (solenoidPressureValid) {
+  doc["pressure_stale"] = solenoidPressureStale;
+  if (solenoidPressureValid || solenoidPressureStale) {
     doc["pressure_psi"] = (int)solenoidPressurePsi;
   }
   if (solenoidBatteryValid) {

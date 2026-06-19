@@ -26,18 +26,16 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `INFLUX_*` | both | InfluxDB telemetry (solenoid: pressure; station: pump/zones) |
 | `VFD_ALERT_URL` | wifi_station | POST target when Frenic fault input activates (empty = disabled) |
 | `VFD_ERROR_SUMMARY` | wifi_station | `error_summary` field in that POST body |
-| `BLE_PRESSURE_*` | wifi_solenoid | BLE device UUIDs and linear pressure scale (empty device id = disabled); see `lib/BlePressureSensor` |
+| `BLE_PRESSURE_*` | wifi_solenoid | BLE MAC, GATT UUIDs, and linear pressure scale; see `lib/BlePressureSensor` |
 | `PRESSURE_*` | wifi_station | Poll interval, thresholds, low/high alarm durations, battery floor; alerts use `VFD_ALERT_URL` |
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
 
-The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`, default 10 minutes) and posts `pressure_psi` and `pressure_battery_pct` to InfluxDB every `INFLUX_DELAY`. It includes the cached result in `GET /status` as well. The e-paper display refreshes when zones change, when a new BLE read completes, or every `DISPLAY_PRESSURE_UPDATE_MS` as a fallback. Station polling does not drive the solenoid display or BLE reads — it only reads the solenoid cache via `/status` for alarms and its web UI. Battery level uses the standard Bluetooth SIG Battery Service (0x180F / 0x2A19). The station polls solenoid `/status` every `PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in its own `/status`, regardless of pump state.
+The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`, default 10 minutes) with retries and automatic NimBLE stack reset after repeated failures (`BLE_PRESSURE_STACK_RESET_FAILURES`). Failed reads retry sooner (`BLE_PRESSURE_FAIL_RETRY_MS`, default 1 minute). Last-good PSI is kept for the e-paper display and `/status` (`pressure_stale: true` when aged); InfluxDB only receives fresh successful reads. The station polls solenoid `/status` every `STATION_PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in its own `/status`, regardless of pump state. Pressure alarms use fresh readings only (`pressure_valid`, not stale).
 
 If the pump is on (`vfd` > 0) and pressure stays below `PRESSURE_LOW_PSI` for `PRESSURE_LOW_ALARM_DURATION_MS`, or above `PRESSURE_HIGH_PSI` for `PRESSURE_HIGH_ALARM_DURATION_MS`, or if battery drops below `PRESSURE_BATTERY_LOW_PCT`, the station POSTs to `VFD_ALERT_URL` with the configured summary strings (same JSON shape as the VFD fault alert).
 
-Raw values below `BLE_PRESSURE_RAW_FLOOR` (default 2000) report 0 psi. Between the two reference points (default 19000→34 psi and 26000→37 psi), psi is linear:
-
-`psi = PSI_REF_LOW + (raw - RAW_REF_LOW) * (PSI_REF_HIGH - PSI_REF_LOW) / (RAW_REF_HIGH - RAW_REF_LOW)`
+Raw values use **signed int16 big-endian tenths of a psi** by default (`BLE_PRESSURE_SCALE_TENTHS`, `BLE_PRESSURE_BIG_ENDIAN`): `psi = raw / 10` as two's-complement, MSB first (e.g. nRF `03-A8` → `0x03A8` → 94 psi, `FF-F4` → `0xFFF4` → −1.2 psi). Set `BLE_PRESSURE_BIG_ENDIAN` to `0` for LSB-first sensors, or `BLE_PRESSURE_SCALE_TENTHS` to `0` for legacy two-point linear scaling.
 
 ### VFD fault input (wifi_station)
 

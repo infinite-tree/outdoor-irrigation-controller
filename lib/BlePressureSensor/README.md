@@ -7,6 +7,9 @@ Designed for [CirrusSense TDWLB-LC Low Cost Wireless Pressure Transducers](https
 Features:
 
 - Connect to a sensor by MAC address and read a custom GATT pressure characteristic
+- Per-read retries and forced disconnect between attempts
+- `resetStack()` to deinit/reinit NimBLE after repeated failures
+- CirrusSense TDWLB-LC: signed int16 **big-endian**, `psi = raw / 10` (0xFFF4 → −1.2 psi vacuum)
 - Interpret pressure as a 16-bit little-endian raw value with configurable linear scaling
 - Read battery level from the standard Bluetooth SIG Battery Service (`0x180F`) and Battery Level characteristic (`0x2A19`)
 

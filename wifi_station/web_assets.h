@@ -22,7 +22,13 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
 
     <div class="tab-panel active" id="panel-now">
       <section class="panel panel-now">
-        <div class="lbl now-clock" id="now-clock">—</div>
+        <div class="now-top">
+          <div class="lbl now-clock" id="now-clock">—</div>
+          <div class="now-pressure" id="now-pressure" aria-label="Pump pressure">
+            <span class="now-pressure-lbl">Press</span>
+            <span class="now-pressure-val" id="now-pressure-val">—</span>
+          </div>
+        </div>
         <div class="now-main" id="now-main">Loading…</div>
         <div class="now-sub" id="now-sub"></div>
         <div class="next-run hidden" id="next-run"></div>
@@ -82,6 +88,13 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .lbl{opacity:.85;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .panel-lbl{color:#666;margin-bottom:6px}
 .panel-now .lbl{color:rgba(255,255,255,.9)}
+.now-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.now-top .now-clock{flex:1;min-width:0}
+.now-pressure{text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
+.now-pressure-lbl{display:block;font-size:.62rem;font-weight:600;opacity:.85;text-transform:uppercase;letter-spacing:.04em}
+.now-pressure-val{display:block;font-size:.95rem;font-weight:700;line-height:1.2}
+.now-pressure.pressure-alarm .now-pressure-val{color:#ffc9c9}
+.now-pressure.pressure-stale .now-pressure-val{opacity:.75}
 .now-clock{text-transform:none;letter-spacing:normal;font-size:.78rem;font-weight:600}
 .now-main{font-size:1.2rem;font-weight:700;margin:2px 0;font-variant-numeric:tabular-nums}
 .now-sub{font-size:.82rem;opacity:.92}
@@ -383,8 +396,30 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     }
   }
 
+  function renderPressure(s) {
+    const wrap = document.getElementById('now-pressure');
+    const val = document.getElementById('now-pressure-val');
+    if (!wrap || !val) {
+      return;
+    }
+    wrap.classList.remove('pressure-alarm', 'pressure-stale');
+    if ((s.pressure_valid || s.pressure_stale) && s.pressure_psi != null) {
+      const prefix = s.pressure_stale ? '~' : '';
+      val.textContent = prefix + s.pressure_psi + ' psi';
+      if (s.pressure_stale) {
+        wrap.classList.add('pressure-stale');
+      }
+      if (s.pressure_low_alarm || s.pressure_high_alarm) {
+        wrap.classList.add('pressure-alarm');
+      }
+    } else {
+      val.textContent = '—';
+    }
+  }
+
   function renderStatus(s) {
     renderClock(s.clock);
+    renderPressure(s);
     document.getElementById('now-main').textContent = s.now_main || '—';
     document.getElementById('now-sub').textContent = s.now_sub || '';
 

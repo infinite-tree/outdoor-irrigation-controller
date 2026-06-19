@@ -43,6 +43,7 @@ extern bool vfdErrorActive;
 extern float solenoidPressurePsi;
 extern int solenoidBatteryPct;
 extern bool solenoidPressureValid;
+extern bool solenoidPressureStale;
 extern bool solenoidBatteryValid;
 extern bool solenoidPressureLowAlarm;
 extern bool solenoidPressureHighAlarm;
@@ -50,6 +51,7 @@ extern bool solenoidBatteryLowAlarm;
 
 struct SolenoidPressureSample {
   bool ok;
+  bool stale;
   float psi;
   int battery_pct;
   bool battery_valid;

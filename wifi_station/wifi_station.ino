@@ -35,8 +35,8 @@ SPIClass SDSPI(HSPI);
 #define VFD_ERROR_SUMMARY "Frenic Mini VFD fault"
 #endif
 
-#ifndef PRESSURE_POLL_INTERVAL_MS
-#define PRESSURE_POLL_INTERVAL_MS 300000
+#ifndef STATION_PRESSURE_POLL_INTERVAL_MS
+#define STATION_PRESSURE_POLL_INTERVAL_MS 300000
 #endif
 #ifndef PRESSURE_LOW_PSI
 #define PRESSURE_LOW_PSI 20.0f
@@ -45,18 +45,10 @@ SPIClass SDSPI(HSPI);
 #define PRESSURE_HIGH_PSI 45.0f
 #endif
 #ifndef PRESSURE_LOW_ALARM_DURATION_MS
-#ifdef PRESSURE_ALARM_DURATION_MS
-#define PRESSURE_LOW_ALARM_DURATION_MS PRESSURE_ALARM_DURATION_MS
-#else
 #define PRESSURE_LOW_ALARM_DURATION_MS 600000
 #endif
-#endif
 #ifndef PRESSURE_HIGH_ALARM_DURATION_MS
-#ifdef PRESSURE_ALARM_DURATION_MS
-#define PRESSURE_HIGH_ALARM_DURATION_MS PRESSURE_ALARM_DURATION_MS
-#else
 #define PRESSURE_HIGH_ALARM_DURATION_MS 600000
-#endif
 #endif
 #ifndef PRESSURE_BATTERY_LOW_PCT
 #define PRESSURE_BATTERY_LOW_PCT 20
@@ -139,6 +131,7 @@ byte currentZoneState = ZONES_OFF;
 float solenoidPressurePsi = 0.0f;
 int solenoidBatteryPct = -1;
 bool solenoidPressureValid = false;
+bool solenoidPressureStale = false;
 bool solenoidBatteryValid = false;
 bool solenoidPressureLowAlarm = false;
 bool solenoidPressureHighAlarm = false;
@@ -416,6 +409,7 @@ bool fetch_solenoid_status(SolenoidPressureSample *sample) {
     Serial.println(httpResponseCode);
     http.end();
     sample->ok = false;
+    sample->stale = false;
     return false;
   }
 
@@ -427,26 +421,38 @@ bool fetch_solenoid_status(SolenoidPressureSample *sample) {
     Serial.print("Solenoid status JSON parse failed: ");
     Serial.println(error.c_str());
     sample->ok = false;
+    sample->stale = false;
     return false;
   }
 
   if (!(doc["pressure_enabled"] | false)) {
     sample->ok = false;
+    sample->stale = false;
     return true;
   }
 
   sample->ok = doc["pressure_valid"] | false;
-  if (!sample->ok) {
-    const char *message = doc["pressure_error"] | "unknown error";
-    Serial.print("Solenoid pressure error: ");
-    Serial.println(message);
-    return false;
+  sample->stale = doc["pressure_stale"] | false;
+
+  if (sample->ok || sample->stale) {
+    sample->psi = doc["pressure_psi"] | 0.0f;
+    sample->battery_valid = !doc["pressure_battery_pct"].isNull();
+    sample->battery_pct =
+        sample->battery_valid ? doc["pressure_battery_pct"].as<int>() : -1;
+    if (sample->stale) {
+      const char *message = doc["pressure_error"] | "stale reading";
+      Serial.print("Solenoid pressure stale: ");
+      Serial.println(message);
+      sample->ok = false;
+    }
+    return true;
   }
 
-  sample->psi = doc["pressure_psi"] | 0.0f;
-  sample->battery_valid = !doc["pressure_battery_pct"].isNull();
-  sample->battery_pct = sample->battery_valid ? doc["pressure_battery_pct"].as<int>() : -1;
-  return true;
+  sample->stale = false;
+  const char *message = doc["pressure_error"] | "unknown error";
+  Serial.print("Solenoid pressure error: ");
+  Serial.println(message);
+  return false;
 }
 
 void reset_pressure_alarm_state() {
@@ -459,18 +465,38 @@ void reset_pressure_alarm_state() {
 void update_pressure_monitoring() {
   const unsigned long now = millis();
   if (lastPressurePoll != 0 &&
-      now - lastPressurePoll < PRESSURE_POLL_INTERVAL_MS) {
+      now - lastPressurePoll < STATION_PRESSURE_POLL_INTERVAL_MS) {
     return;
   }
   lastPressurePoll = now;
 
   SolenoidPressureSample sample;
-  if (!fetch_solenoid_status(&sample) || !sample.ok) {
+  sample.stale = false;
+  if (!fetch_solenoid_status(&sample)) {
     solenoidPressureValid = false;
+    solenoidPressureStale = false;
+    return;
+  }
+
+  if (sample.stale) {
+    solenoidPressureValid = false;
+    solenoidPressureStale = true;
+    solenoidPressurePsi = sample.psi;
+    solenoidBatteryValid = sample.battery_valid;
+    if (sample.battery_valid) {
+      solenoidBatteryPct = sample.battery_pct;
+    }
+    return;
+  }
+
+  if (!sample.ok) {
+    solenoidPressureValid = false;
+    solenoidPressureStale = false;
     return;
   }
 
   solenoidPressureValid = true;
+  solenoidPressureStale = false;
   solenoidPressurePsi = sample.psi;
   solenoidBatteryValid = sample.battery_valid;
   if (sample.battery_valid) {
