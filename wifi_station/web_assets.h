@@ -464,11 +464,23 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     });
   }
 
-  function schedulesDirty() {
-    if (editingKey) {
-      commitEditToMemory(false);
+  function projectedSchedulesPayload() {
+    if (!editingKey) {
+      return payloadFromSchedules(schedules);
     }
-    return JSON.stringify(payloadFromSchedules(schedules)) !== savedSnapshot;
+    const updated = readEditCard();
+    if (!updated) {
+      return payloadFromSchedules(schedules);
+    }
+    return payloadFromSchedules(
+      schedules.map(function (s) {
+        return s._key === editingKey ? updated : s;
+      })
+    );
+  }
+
+  function schedulesDirty() {
+    return JSON.stringify(projectedSchedulesPayload()) !== savedSnapshot;
   }
 
   function updateListLock() {
@@ -707,7 +719,6 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     if (idx >= 0) {
       schedules[idx] = updated;
     }
-    updateEditSaveButton();
     if (refreshRows === true) {
       renderScheduleRowsOnly();
     }
@@ -758,6 +769,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
 
   function markSchedulesDirty() {
     commitEditToMemory(false);
+    updateEditSaveButton();
   }
 
   function setSavedSnapshotFromSchedules() {
