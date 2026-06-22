@@ -35,14 +35,56 @@
 // Station uses this host to call the solenoid HTTP API
 #define SOLENOID_HTTP_HOST  "192.168.2.218"
 
-// InfluxDB (wifi_station only)
+// InfluxDB (both boards). Solenoid sends pressure_psi and pressure_battery_pct;
+// station sends pump/zone telemetry.
 #define INFLUX_DATABASE     "infinitestats"
 #define INFLUX_HOSTNAME     "stats.infinite-tree.com"
 #define INFLUX_USER         "sensor"
 #define INFLUX_PASSWORD     ""
-#define INFLUX_DELAY        300000
+#define INFLUX_DELAY        300000   // 5 minutes
 
 // VFD fault alert (wifi_station only). POST JSON on new Frenic fault input.
 // Leave URL empty to disable remote notification.
 #define VFD_ALERT_URL         ""
 #define VFD_ERROR_SUMMARY     "Frenic Mini VFD fault"
+
+// BLE pressure sensor on wifi_solenoid. Device MAC and GATT UUIDs are required.
+// Set BLE_PRESSURE_DEVICE_ID to the sensor MAC (XX:XX:XX:XX:XX:XX from nRF Connect).
+// Do not use Web Bluetooth / NodeLoop id= values — those are not MAC addresses.
+#define BLE_PRESSURE_DEVICE_ID          ""
+#define BLE_PRESSURE_SERVICE_UUID         ""
+#define BLE_PRESSURE_CHAR_UUID            ""
+// Battery level uses the standard BLE Battery Service (0x180F) / Battery Level (0x2A19).
+// CirrusSense TDWLB-LC: signed int16 BIG-ENDIAN, psi = raw / 10. nRF Connect shows
+// the bytes in wire order, e.g. "03-A8" -> 0x03A8 = 936 -> 93.6 psi; "FF-F4" ->
+// 0xFFF4 = -12 -> -1.2 psi (slight vacuum). Set BIG_ENDIAN to 0 if your sensor sends
+// LSB first. Set SCALE_TENTHS to 0 for legacy two-point linear scaling (RAW_REF_* below).
+#define BLE_PRESSURE_SCALE_TENTHS           1
+#define BLE_PRESSURE_BIG_ENDIAN             1
+#define BLE_PRESSURE_TENTHS_DIVISOR         10.0f
+#define BLE_PRESSURE_MAX_PSI                250.0f
+#define BLE_PRESSURE_MIN_PSI                -20.0f
+#define BLE_PRESSURE_RAW_ZERO_SENTINEL      0xFFFF
+#define BLE_PRESSURE_RAW_FLOOR              2000
+#define BLE_PRESSURE_RAW_REF_LOW          19000
+#define BLE_PRESSURE_PSI_REF_LOW          34.0f
+#define BLE_PRESSURE_RAW_REF_HIGH         26000
+#define BLE_PRESSURE_PSI_REF_HIGH         37.0f
+#define BLE_PRESSURE_REFRESH_MS           600000  // 10 minutes between BLE reads on solenoid
+#define BLE_PRESSURE_CONNECT_TIMEOUT_MS   8000
+#define BLE_PRESSURE_MAX_RETRIES          3
+#define BLE_PRESSURE_RETRY_DELAY_MS       2000
+#define BLE_PRESSURE_STACK_RESET_FAILURES 3   // NimBLE deinit/reinit after this many failed refreshes
+#define BLE_PRESSURE_FAIL_RETRY_MS        60000 // retry sooner after a failed read (1 minute)
+#define DISPLAY_PRESSURE_UPDATE_MS        600000  // 10 minutes between e-paper refreshes (fallback)
+
+// Pressure monitoring (wifi_station only). Polls solenoid /status on an interval.
+#define STATION_PRESSURE_POLL_INTERVAL_MS 300000   // 5 minutes
+#define PRESSURE_LOW_PSI                  20.0f
+#define PRESSURE_HIGH_PSI                 45.0f
+#define PRESSURE_LOW_ALARM_DURATION_MS    600000   // 10 minutes
+#define PRESSURE_HIGH_ALARM_DURATION_MS   600000   // 10 minutes
+#define PRESSURE_BATTERY_LOW_PCT          20
+#define PRESSURE_LOW_SUMMARY              "Solenoid pressure low"
+#define PRESSURE_HIGH_SUMMARY             "Solenoid pressure high"
+#define PRESSURE_BATTERY_SUMMARY          "Solenoid pressure sensor battery low"

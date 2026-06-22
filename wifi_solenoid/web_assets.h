@@ -15,6 +15,16 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
   <div class="app">
     <h1 class="hdr">Solenoid</h1>
 
+    <section class="panel panel-now" id="pressure-panel">
+      <div class="pressure-row">
+        <div>
+          <div class="lbl">Pressure</div>
+          <div class="pressure-val" id="pressure-val">—</div>
+        </div>
+        <div class="pressure-meta" id="pressure-meta"></div>
+      </div>
+    </section>
+
     <section class="panel panel-now">
       <div class="lbl">Zones</div>
       <div class="chips" id="chips"></div>
@@ -38,6 +48,10 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .panel-now{background:linear-gradient(145deg,#0056b3,#0074c2);color:#fff}
 .lbl{opacity:.85;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .panel-now .lbl{color:rgba(255,255,255,.9)}
+.pressure-row{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+.pressure-val{font-size:1.35rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2;margin-top:2px}
+.pressure-meta{text-align:right;font-size:.72rem;opacity:.9;line-height:1.35;max-width:55%}
+.pressure-meta.stale{color:#ffc9c9}
 .chips{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-top:8px}
 .chip{border-radius:8px;padding:8px 4px;text-align:center;font-size:.75rem;font-weight:700;line-height:1.15}
 .chip b{display:block;font-size:.62rem;font-weight:600;opacity:.85;margin-bottom:2px}
@@ -65,6 +79,76 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     const cls = on ? 'chip-on' : 'chip-off';
     const word = on ? 'On' : 'Off';
     return '<div class="chip ' + cls + '"><b>' + label + '</b>' + word + '</div>';
+  }
+
+  function formatAge(seconds) {
+    const s = parseInt(seconds, 10);
+    if (isNaN(s) || s < 0) {
+      return '';
+    }
+    if (s < 60) {
+      return s + 's ago';
+    }
+    if (s < 3600) {
+      const m = Math.floor(s / 60);
+      return m === 1 ? '1 min ago' : m + ' min ago';
+    }
+    const h = Math.floor(s / 3600);
+    const rem = Math.floor((s % 3600) / 60);
+    if (rem === 0) {
+      return h === 1 ? '1 hr ago' : h + ' hr ago';
+    }
+    return h + ' hr ' + rem + ' min ago';
+  }
+
+  function formatReadTime(s) {
+    let line = '';
+    if (s.pressure_read_epoch) {
+      line = new Date(s.pressure_read_epoch * 1000).toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    }
+    if (s.pressure_read_seconds_ago != null) {
+      const age = formatAge(s.pressure_read_seconds_ago);
+      line = line ? age + ' · ' + line : age;
+    }
+    if (s.pressure_stale) {
+      line = line ? line + ' · stale' : 'stale';
+    }
+    return line;
+  }
+
+  function renderPressure(s) {
+    const panel = document.getElementById('pressure-panel');
+    const val = document.getElementById('pressure-val');
+    const meta = document.getElementById('pressure-meta');
+    if (!panel || !val || !meta) {
+      return;
+    }
+
+    if (!s.pressure_enabled) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+
+    if (!s.pressure_valid && !s.pressure_stale) {
+      val.textContent = '—';
+      meta.textContent = s.pressure_error || 'No reading yet';
+      meta.classList.toggle('stale', false);
+      return;
+    }
+
+    if (s.pressure_psi != null) {
+      const prefix = s.pressure_stale ? '~' : '';
+      val.textContent = prefix + s.pressure_psi + ' psi';
+    } else {
+      val.textContent = '—';
+    }
+
+    meta.textContent = formatReadTime(s);
+    meta.classList.toggle('stale', !!s.pressure_stale);
   }
 
   function renderChips(s) {
@@ -137,6 +221,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
   }
 
   function renderStatus(s) {
+    renderPressure(s);
     renderChips(s);
     const z = s.zones || {};
     if (!document.getElementById('zone-form')) {

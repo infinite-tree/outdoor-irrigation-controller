@@ -1,0 +1,21 @@
+{
+  "name": "BlePressureSensor",
+  "version": "1.0.0",
+  "description": "BLE GATT client for pressure sensors with linear scaling and standard battery reads",
+  "keywords": "ble, bluetooth, pressure, nimble, esp32, gatt",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Ryan Burns",
+      "maintainer": true
+    }
+  ],
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    {
+      "name": "h2zero/NimBLE-Arduino",
+      "version": "^2.1.0"
+    }
+  ]
+}

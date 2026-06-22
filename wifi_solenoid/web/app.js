@@ -11,6 +11,76 @@
     return '<div class="chip ' + cls + '"><b>' + label + '</b>' + word + '</div>';
   }
 
+  function formatAge(seconds) {
+    const s = parseInt(seconds, 10);
+    if (isNaN(s) || s < 0) {
+      return '';
+    }
+    if (s < 60) {
+      return s + 's ago';
+    }
+    if (s < 3600) {
+      const m = Math.floor(s / 60);
+      return m === 1 ? '1 min ago' : m + ' min ago';
+    }
+    const h = Math.floor(s / 3600);
+    const rem = Math.floor((s % 3600) / 60);
+    if (rem === 0) {
+      return h === 1 ? '1 hr ago' : h + ' hr ago';
+    }
+    return h + ' hr ' + rem + ' min ago';
+  }
+
+  function formatReadTime(s) {
+    let line = '';
+    if (s.pressure_read_epoch) {
+      line = new Date(s.pressure_read_epoch * 1000).toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+    }
+    if (s.pressure_read_seconds_ago != null) {
+      const age = formatAge(s.pressure_read_seconds_ago);
+      line = line ? age + ' · ' + line : age;
+    }
+    if (s.pressure_stale) {
+      line = line ? line + ' · stale' : 'stale';
+    }
+    return line;
+  }
+
+  function renderPressure(s) {
+    const panel = document.getElementById('pressure-panel');
+    const val = document.getElementById('pressure-val');
+    const meta = document.getElementById('pressure-meta');
+    if (!panel || !val || !meta) {
+      return;
+    }
+
+    if (!s.pressure_enabled) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+
+    if (!s.pressure_valid && !s.pressure_stale) {
+      val.textContent = '—';
+      meta.textContent = s.pressure_error || 'No reading yet';
+      meta.classList.toggle('stale', false);
+      return;
+    }
+
+    if (s.pressure_psi != null) {
+      const prefix = s.pressure_stale ? '~' : '';
+      val.textContent = prefix + s.pressure_psi + ' psi';
+    } else {
+      val.textContent = '—';
+    }
+
+    meta.textContent = formatReadTime(s);
+    meta.classList.toggle('stale', !!s.pressure_stale);
+  }
+
   function renderChips(s) {
     const z = s.zones || {};
     document.getElementById('chips').innerHTML =
@@ -81,6 +151,7 @@
   }
 
   function renderStatus(s) {
+    renderPressure(s);
     renderChips(s);
     const z = s.zones || {};
     if (!document.getElementById('zone-form')) {

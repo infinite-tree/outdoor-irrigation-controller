@@ -14,6 +14,13 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .lbl{opacity:.85;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .panel-lbl{color:#666;margin-bottom:6px}
 .panel-now .lbl{color:rgba(255,255,255,.9)}
+.now-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.now-top .now-clock{flex:1;min-width:0}
+.now-pressure{text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
+.now-pressure-lbl{display:block;font-size:.62rem;font-weight:600;opacity:.85;text-transform:uppercase;letter-spacing:.04em}
+.now-pressure-val{display:block;font-size:.95rem;font-weight:700;line-height:1.2}
+.now-pressure.pressure-alarm .now-pressure-val{color:#ffc9c9}
+.now-pressure.pressure-stale .now-pressure-val{opacity:.75}
 .now-clock{text-transform:none;letter-spacing:normal;font-size:.78rem;font-weight:600}
 .now-main{font-size:1.2rem;font-weight:700;margin:2px 0;font-variant-numeric:tabular-nums}
 .now-sub{font-size:.82rem;opacity:.92}

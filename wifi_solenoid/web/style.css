@@ -8,6 +8,10 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .panel-now{background:linear-gradient(145deg,#0056b3,#0074c2);color:#fff}
 .lbl{opacity:.85;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .panel-now .lbl{color:rgba(255,255,255,.9)}
+.pressure-row{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+.pressure-val{font-size:1.35rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2;margin-top:2px}
+.pressure-meta{text-align:right;font-size:.72rem;opacity:.9;line-height:1.35;max-width:55%}
+.pressure-meta.stale{color:#ffc9c9}
 .chips{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-top:8px}
 .chip{border-radius:8px;padding:8px 4px;text-align:center;font-size:.75rem;font-weight:700;line-height:1.15}
 .chip b{display:block;font-size:.62rem;font-weight:600;opacity:.85;margin-bottom:2px}
