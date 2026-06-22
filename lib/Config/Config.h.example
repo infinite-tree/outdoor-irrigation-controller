@@ -47,6 +47,9 @@
 // Leave URL empty to disable remote notification.
 #define VFD_ALERT_URL         ""
 #define VFD_ERROR_SUMMARY     "Frenic Mini VFD fault"
+#define VFD_ERROR_DEBOUNCE_MS       2000    // sustained fault before alarm (ms)
+#define VFD_ERROR_CLEAR_DEBOUNCE_MS 5000    // sustained clear before resetting UI (ms)
+#define VFD_ALERT_COOLDOWN_MS       1800000 // min interval between any alert POST (30 min)
 
 // BLE pressure sensor on wifi_solenoid. Device MAC and GATT UUIDs are required.
 // Set BLE_PRESSURE_DEVICE_ID to the sensor MAC (XX:XX:XX:XX:XX:XX from nRF Connect).

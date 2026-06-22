@@ -62,6 +62,15 @@ SPIClass SDSPI(HSPI);
 #ifndef PRESSURE_BATTERY_SUMMARY
 #define PRESSURE_BATTERY_SUMMARY "Solenoid pressure sensor battery low"
 #endif
+#ifndef VFD_ERROR_DEBOUNCE_MS
+#define VFD_ERROR_DEBOUNCE_MS 2000
+#endif
+#ifndef VFD_ERROR_CLEAR_DEBOUNCE_MS
+#define VFD_ERROR_CLEAR_DEBOUNCE_MS 5000
+#endif
+#ifndef VFD_ALERT_COOLDOWN_MS
+#define VFD_ALERT_COOLDOWN_MS 1800000
+#endif
 
 
 #define EDP_BUSY_PIN            48
@@ -96,7 +105,8 @@ SPIClass SDSPI(HSPI);
 #define REMOTE_SAMPLE_SIZE           20
 
 #define VFD_ERROR_ACTIVE             LOW
-#define VFD_ERROR_SAMPLE_SIZE        5
+#define VFD_ERROR_SAMPLE_DELAY_MS    8
+#define VFD_ERROR_SAMPLE_SIZE        20
 
 // Time in seconds
 #define MINUTES               60
@@ -195,6 +205,9 @@ unsigned long pressureHighSince = 0;
 bool pressureLowAlertSent = false;
 bool pressureHighAlertSent = false;
 bool batteryLowAlertSent = false;
+unsigned long vfdErrorPendingSince = 0;
+unsigned long vfdErrorClearSince = 0;
+unsigned long lastVfdAlertPostMs = 0;
 InfluxArduino influx;
 
 
@@ -347,9 +360,11 @@ bool read_vfd_error_input() {
     if (digitalRead(VFD_ERROR_INPUT_PIN) == VFD_ERROR_ACTIVE) {
       active_count++;
     }
-    delay(2);
+    delay(VFD_ERROR_SAMPLE_DELAY_MS);
   }
-  return active_count >= 3;
+  // Majority over VFD_ERROR_SAMPLE_DELAY_MS * VFD_ERROR_SAMPLE_SIZE (~160 ms)
+  // spans several AC cycles when the opto is energized.
+  return active_count > (VFD_ERROR_SAMPLE_SIZE / 2);
 }
 
 void format_event_datetime(char *buffer, size_t buflen) {
@@ -363,6 +378,15 @@ void format_event_datetime(char *buffer, size_t buflen) {
 bool send_vfd_error_alert(const char *summary, const char *datetime) {
   if (VFD_ALERT_URL[0] == '\0') {
     Serial.println("VFD_ALERT_URL not configured; skipping alert POST");
+    return false;
+  }
+
+  const unsigned long now = millis();
+  if (lastVfdAlertPostMs != 0 &&
+      now - lastVfdAlertPostMs < VFD_ALERT_COOLDOWN_MS) {
+    Serial.print("Alert rate-limited (");
+    Serial.print(summary);
+    Serial.println("); skipping POST");
     return false;
   }
 
@@ -384,6 +408,7 @@ bool send_vfd_error_alert(const char *summary, const char *datetime) {
   bool success = (httpResponseCode >= 200 && httpResponseCode < 300);
 
   if (success) {
+    lastVfdAlertPostMs = now;
     Serial.print("Alert accepted: ");
     Serial.println(http.getString());
   } else {
@@ -918,17 +943,36 @@ void loop() {
   }
 
   bool vfd_error_now = read_vfd_error_input();
-  if (!vfdErrorActive && vfd_error_now) {
-    vfdErrorActive = true;
-    pendingDisplayUpdate = true;
-    char datetime[40];
-    format_event_datetime(datetime, sizeof(datetime));
-    send_vfd_error_alert(VFD_ERROR_SUMMARY, datetime);
-    Serial.println("VFD error detected");
-  } else if (vfdErrorActive && !vfd_error_now) {
-    vfdErrorActive = false;
-    pendingDisplayUpdate = true;
-    Serial.println("VFD error cleared");
+  const unsigned long vfd_now = millis();
+  if (vfd_error_now) {
+    vfdErrorClearSince = 0;
+    if (!vfdErrorActive) {
+      if (vfdErrorPendingSince == 0) {
+        vfdErrorPendingSince = vfd_now;
+      } else if (vfd_now - vfdErrorPendingSince >= VFD_ERROR_DEBOUNCE_MS) {
+        vfdErrorActive = true;
+        pendingDisplayUpdate = true;
+        char datetime[40];
+        format_event_datetime(datetime, sizeof(datetime));
+        send_vfd_error_alert(VFD_ERROR_SUMMARY, datetime);
+        Serial.println("VFD error detected");
+        vfdErrorPendingSince = 0;
+      }
+    }
+  } else {
+    vfdErrorPendingSince = 0;
+    if (vfdErrorActive) {
+      if (vfdErrorClearSince == 0) {
+        vfdErrorClearSince = vfd_now;
+      } else if (vfd_now - vfdErrorClearSince >= VFD_ERROR_CLEAR_DEBOUNCE_MS) {
+        vfdErrorActive = false;
+        pendingDisplayUpdate = true;
+        Serial.println("VFD error cleared");
+        vfdErrorClearSince = 0;
+      }
+    } else {
+      vfdErrorClearSince = 0;
+    }
   }
 
   update_pressure_monitoring();

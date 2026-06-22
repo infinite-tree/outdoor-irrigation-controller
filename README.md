@@ -26,6 +26,9 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `INFLUX_*` | both | InfluxDB telemetry (solenoid: pressure; station: pump/zones) |
 | `VFD_ALERT_URL` | wifi_station | POST target when Frenic fault input activates (empty = disabled) |
 | `VFD_ERROR_SUMMARY` | wifi_station | `error_summary` field in that POST body |
+| `VFD_ERROR_DEBOUNCE_MS` | wifi_station | Fault must stay active this long before alarm/webhook (default 2 s) |
+| `VFD_ERROR_CLEAR_DEBOUNCE_MS` | wifi_station | Fault must stay inactive this long before UI clears (default 5 s) |
+| `VFD_ALERT_COOLDOWN_MS` | wifi_station | Minimum interval between any alert POSTs (default 30 min) |
 | `BLE_PRESSURE_*` | wifi_solenoid | BLE MAC, GATT UUIDs, and linear pressure scale; see `lib/BlePressureSensor` |
 | `PRESSURE_*` | wifi_station | Poll interval, thresholds, low/high alarm durations, battery floor; alerts use `VFD_ALERT_URL` |
 
@@ -41,13 +44,13 @@ Raw values use **signed int16 big-endian tenths of a psi** by default (`BLE_PRES
 
 GPIO **40** (`VFD_ERROR_INPUT_PIN`) — `INPUT_PULLUP`, active **LOW** when the PC817 pulls low (Frenic Mini fault relay on terminals **30A–30C**, normal logic).
 
-On a new fault edge the station updates the e-paper **VFD %:** line to **ERROR**, sets `vfd_error` in `/status`, and POSTs JSON:
+On a sustained fault (active for `VFD_ERROR_DEBOUNCE_MS`, default 2 s) the station updates the e-paper **VFD %:** line to **ERROR**, sets `vfd_error` in `/status`, and POSTs JSON:
 
 ```json
 {"error_summary":"…","datetime":"2025-05-27T14:30:00-0700"}
 ```
 
-`datetime` uses local time from NTP (`MY_TZ` in `wifi_station.ino`). One POST per fault transition (not repeated while the signal stays active).
+`datetime` uses local time from NTP (`MY_TZ` in `wifi_station.ino`). The fault input is majority-sampled over ~160 ms (same approach as the remote pump input). Alert POSTs are rate-limited to one per `VFD_ALERT_COOLDOWN_MS` (default 30 minutes) across all alert types sharing `VFD_ALERT_URL`. The UI clears only after the fault input stays inactive for `VFD_ERROR_CLEAR_DEBOUNCE_MS` (default 5 s); a real Frenic fault stays latched until reset on the drive.
 
 ## Custom logo
 
