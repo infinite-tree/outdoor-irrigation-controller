@@ -87,6 +87,9 @@ static void json_append_watering_row(JsonObject parent, const char *key, const W
 }
 
 static void web_serve_progmem(const char *content_type, const char *body) {
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  server.sendHeader("Pragma", "no-cache");
+  server.sendHeader("Expires", "0");
   server.send_P(200, content_type, body);
 }
 

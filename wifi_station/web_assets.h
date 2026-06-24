@@ -8,6 +8,7 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache">
   <title>Station</title>
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -118,6 +119,8 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .ctrl-row input,.ctrl-row select{flex:1;min-width:0;min-height:42px;padding:8px 10px;font-size:16px;border:1px solid #ccc;border-radius:8px;background:#fff}
 .btn{width:100%;min-height:44px;border:none;border-radius:9px;font-size:1rem;font-weight:700;color:#fff;background:#0056b3;cursor:pointer;-webkit-appearance:none}
 .btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-save.btn-save-stale{opacity:.72}
+.btn-save.btn-saving{opacity:.55;pointer-events:none}
 .btn-stop{background:#b02a37}
 .btn-add{background:#fff;color:#0056b3;border:2px solid #0056b3;margin-top:6px}
 .panel-schedules{display:flex;flex-direction:column;gap:8px}
@@ -495,7 +498,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     if (!btn) {
       return;
     }
-    btn.disabled = !editingIsNew && !schedulesDirty();
+    btn.classList.toggle('btn-save-stale', !editingIsNew && !schedulesDirty());
   }
 
   function zoneLabel(zoneNum) {
@@ -848,7 +851,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     const saveBtn = document.querySelector('#sched-edit [data-action=save]');
 
     if (saveBtn) {
-      saveBtn.disabled = true;
+      saveBtn.classList.add('btn-saving');
       saveBtn.textContent = 'Saving…';
     }
 
@@ -878,6 +881,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       })
       .finally(function () {
         if (saveBtn) {
+          saveBtn.classList.remove('btn-saving');
           saveBtn.textContent = 'Save schedule';
         }
       });
@@ -887,10 +891,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     if (!editingKey) {
       return Promise.resolve();
     }
-    if (!editingIsNew && !schedulesDirty()) {
-      cancelEdit();
-      return Promise.resolve();
-    }
+    commitEditToMemory(false);
     return persistSchedules(true);
   }
 

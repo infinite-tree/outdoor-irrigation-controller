@@ -60,6 +60,7 @@ done
 JS="$(curl -sf --connect-timeout 5 "${BASE}/app.js")"
 [[ -n "$JS" ]] || fail "app.js empty"
 echo "$JS" | grep -q 'saveCurrentSchedule' || fail "app.js missing save handler"
+echo "$JS" | grep -q 'projectedSchedulesPayload' || fail "app.js missing schedule edit fix (stale cached firmware or old build)"
 
 HTML="$(curl -sf --connect-timeout 5 "${BASE}/")"
 [[ -n "$HTML" ]] || fail "index empty"

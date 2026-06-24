@@ -331,7 +331,7 @@
     if (!btn) {
       return;
     }
-    btn.disabled = !editingIsNew && !schedulesDirty();
+    btn.classList.toggle('btn-save-stale', !editingIsNew && !schedulesDirty());
   }
 
   function zoneLabel(zoneNum) {
@@ -684,7 +684,7 @@
     const saveBtn = document.querySelector('#sched-edit [data-action=save]');
 
     if (saveBtn) {
-      saveBtn.disabled = true;
+      saveBtn.classList.add('btn-saving');
       saveBtn.textContent = 'Saving…';
     }
 
@@ -714,6 +714,7 @@
       })
       .finally(function () {
         if (saveBtn) {
+          saveBtn.classList.remove('btn-saving');
           saveBtn.textContent = 'Save schedule';
         }
       });
@@ -723,10 +724,7 @@
     if (!editingKey) {
       return Promise.resolve();
     }
-    if (!editingIsNew && !schedulesDirty()) {
-      cancelEdit();
-      return Promise.resolve();
-    }
+    commitEditToMemory(false);
     return persistSchedules(true);
   }
 
