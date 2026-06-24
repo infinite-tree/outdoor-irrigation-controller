@@ -79,7 +79,12 @@
 #define DISPLAY_PRESSURE_UPDATE_MS        600000  // 10 minutes between e-paper refreshes (fallback)
 
 // Pressure monitoring (wifi_station only). Polls solenoid /status on an interval.
-#define STATION_PRESSURE_POLL_INTERVAL_MS 300000   // 5 minutes
+#define STATION_PRESSURE_POLL_INTERVAL_MS 300000   // 5 minutes while pump/VFD off
+#define STATION_PRESSURE_POLL_ACTIVE_MS   60000    // 1 minute while pump/VFD on (incl. remote)
+
+// Station watchdog (wifi_station only). Restarts the board if the main loop stalls.
+#define STATION_WATCHDOG_TIMEOUT_MS       120000   // 2 minutes
+#define STATION_WIFI_RESTART_MS           3600000  // restart after 1 h WiFi down (0 = disable)
 #define PRESSURE_LOW_PSI                  20.0f
 #define PRESSURE_HIGH_PSI                 45.0f
 #define PRESSURE_LOW_ALARM_DURATION_MS    600000   // 10 minutes

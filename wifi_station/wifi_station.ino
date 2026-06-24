@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 
 // DNS doesn't seem to work without these
 #include "lwip/inet.h"
@@ -37,6 +38,15 @@ SPIClass SDSPI(HSPI);
 
 #ifndef STATION_PRESSURE_POLL_INTERVAL_MS
 #define STATION_PRESSURE_POLL_INTERVAL_MS 300000
+#endif
+#ifndef STATION_PRESSURE_POLL_ACTIVE_MS
+#define STATION_PRESSURE_POLL_ACTIVE_MS 60000
+#endif
+#ifndef STATION_WATCHDOG_TIMEOUT_MS
+#define STATION_WATCHDOG_TIMEOUT_MS 120000
+#endif
+#ifndef STATION_WIFI_RESTART_MS
+#define STATION_WIFI_RESTART_MS 3600000
 #endif
 #ifndef PRESSURE_LOW_PSI
 #define PRESSURE_LOW_PSI 20.0f
@@ -190,6 +200,7 @@ bool wifiReconnecting = false;
 unsigned long wifiReconnectStarted = 0;
 unsigned long lastInfluxSend = -3000000; // Track last InfluxDB send time
 unsigned long lastPressurePoll = 0;
+unsigned long wifiDisconnectedSince = 0;
 unsigned long pressureLowSince = 0;
 unsigned long pressureHighSince = 0;
 bool pressureLowAlertSent = false;
@@ -335,6 +346,9 @@ bool read_remote_pump_input() {
       on_count++;
     }
     delay(REMOTE_SAMPLE_DELAY_MS);
+    if ((i % 5) == 4) {
+      station_watchdog_feed();
+    }
   }
   // Majority over REMOTE_SAMPLE_DELAY_MS * REMOTE_SAMPLE_SIZE (~160 ms) spans
   // ~8-10 AC cycles at 50/60 Hz when the opto is energized.
@@ -395,7 +409,42 @@ bool send_vfd_error_alert(const char *summary, const char *datetime) {
   return success;
 }
 
-bool fetch_solenoid_status(SolenoidPressureSample *sample) {
+void station_watchdog_init() {
+  esp_task_wdt_deinit();
+#if ESP_IDF_VERSION_MAJOR >= 5
+  esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = STATION_WATCHDOG_TIMEOUT_MS,
+      .idle_core_mask = 0,
+      .trigger_panic = true,
+  };
+  esp_task_wdt_init(&wdt_config);
+#else
+  esp_task_wdt_init(STATION_WATCHDOG_TIMEOUT_MS / 1000, true);
+#endif
+  esp_task_wdt_add(NULL);
+  Serial.print("Watchdog enabled (");
+  Serial.print(STATION_WATCHDOG_TIMEOUT_MS / 1000);
+  Serial.println(" s timeout)");
+}
+
+void station_watchdog_feed() {
+  esp_task_wdt_reset();
+}
+
+bool pump_is_active() {
+  return vfdMode > 0 || remoteSignalOn;
+}
+
+unsigned long pressure_poll_interval_ms() {
+  return pump_is_active() ? STATION_PRESSURE_POLL_ACTIVE_MS
+                          : STATION_PRESSURE_POLL_INTERVAL_MS;
+}
+
+void request_immediate_pressure_poll() {
+  lastPressurePoll = 0;
+}
+
+bool fetch_solenoid_status_once(SolenoidPressureSample *sample) {
   String url = "http://" + String(SOLENOID_HTTP_HOST) + "/status";
   HTTPClient http;
 
@@ -455,6 +504,19 @@ bool fetch_solenoid_status(SolenoidPressureSample *sample) {
   return false;
 }
 
+bool fetch_solenoid_status(SolenoidPressureSample *sample) {
+  for (uint8_t attempt = 1; attempt <= SOLENOID_HTTP_RETRY_COUNT; attempt++) {
+    if (fetch_solenoid_status_once(sample)) {
+      return true;
+    }
+    if (attempt < SOLENOID_HTTP_RETRY_COUNT) {
+      delay(SOLENOID_HTTP_RETRY_DELAY_MS);
+      station_watchdog_feed();
+    }
+  }
+  return false;
+}
+
 void reset_pressure_alarm_state() {
   pressureLowSince = 0;
   pressureHighSince = 0;
@@ -464,8 +526,8 @@ void reset_pressure_alarm_state() {
 
 void update_pressure_monitoring() {
   const unsigned long now = millis();
-  if (lastPressurePoll != 0 &&
-      now - lastPressurePoll < STATION_PRESSURE_POLL_INTERVAL_MS) {
+  const unsigned long poll_interval = pressure_poll_interval_ms();
+  if (lastPressurePoll != 0 && now - lastPressurePoll < poll_interval) {
     return;
   }
   lastPressurePoll = now;
@@ -473,8 +535,11 @@ void update_pressure_monitoring() {
   SolenoidPressureSample sample;
   sample.stale = false;
   if (!fetch_solenoid_status(&sample)) {
-    solenoidPressureValid = false;
-    solenoidPressureStale = false;
+    if (solenoidPressureValid || solenoidPressureStale) {
+      solenoidPressureValid = false;
+      solenoidPressureStale = true;
+      Serial.println("Solenoid status poll failed; keeping last pressure as stale");
+    }
     return;
   }
 
@@ -512,7 +577,7 @@ void update_pressure_monitoring() {
     Serial.println("%");
   }
 
-  const bool pump_on = vfdMode > 0;
+  const bool pump_on = pump_is_active();
   if (!pump_on) {
     reset_pressure_alarm_state();
     batteryLowAlertSent = false;
@@ -570,6 +635,7 @@ void update_pressure_monitoring() {
 }
 
 void update_vfd() {
+  const uint8_t prev_vfd_mode = vfdMode;
   int  vfd_power = 0;
 
   // if the system is trying to stop, then don't pay attention to the current state becuase the VFD needs to stop first
@@ -599,6 +665,10 @@ void update_vfd() {
     // any other scenario, off
     digitalWrite(HALF_PWR_OUTPUT_PIN, RELAY_OFF);
     digitalWrite(FULL_PWR_OUTPUT_PIN, RELAY_OFF);
+  }
+
+  if (vfdMode > 0 && prev_vfd_mode == 0) {
+    request_immediate_pressure_poll();
   }
 }
 
@@ -888,10 +958,13 @@ void setup() {
   web_server_init();
   schedule_init();
   setupInflux();
+  station_watchdog_init();
   update_display_status(false, false, ZONES_OFF);
 }
 
 void loop() {
+  station_watchdog_feed();
+
   //  service web requests
   server.handleClient();
 
@@ -952,6 +1025,9 @@ void loop() {
   if (millis() - wifiConnectionUpdate > WIFI_CONNECTION_MILLIS) {
     wifiConnectionUpdate = millis();
     if (WiFi.status() != WL_CONNECTED) {
+      if (wifiDisconnectedSince == 0) {
+        wifiDisconnectedSince = millis();
+      }
       if (!wifiReconnecting) {
         Serial.println("ERROR: Wifi disconnected, retrying...");
         WiFi.disconnect();
@@ -959,10 +1035,20 @@ void loop() {
         wifiReconnecting = true;
         wifiReconnectStarted = millis();
       }
-    } else if (wifiReconnecting) {
-      wifiReconnecting = false;
-      Serial.println("WiFi reconnected");
-      Serial.println(WiFi.localIP());
+#if STATION_WIFI_RESTART_MS > 0
+      if (millis() - wifiDisconnectedSince > STATION_WIFI_RESTART_MS) {
+        Serial.println("WiFi down too long; restarting station");
+        delay(100);
+        ESP.restart();
+      }
+#endif
+    } else {
+      wifiDisconnectedSince = 0;
+      if (wifiReconnecting) {
+        wifiReconnecting = false;
+        Serial.println("WiFi reconnected");
+        Serial.println(WiFi.localIP());
+      }
     }
   }
 
@@ -977,7 +1063,9 @@ void loop() {
   }
   if (pendingDisplayUpdate) {
     pendingDisplayUpdate = false;
+    station_watchdog_feed();
     update_display_status(remoteSignalOn, currentZoneState, vfdMode);
+    station_watchdog_feed();
   }
 
 
