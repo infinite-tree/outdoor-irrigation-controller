@@ -42,6 +42,12 @@ SPIClass SDSPI(HSPI);
 #ifndef STATION_PRESSURE_POLL_ACTIVE_MS
 #define STATION_PRESSURE_POLL_ACTIVE_MS 60000
 #endif
+#ifndef STATION_PRESSURE_FETCH_RETRY_MS
+#define STATION_PRESSURE_FETCH_RETRY_MS 30000
+#endif
+#ifndef STATION_PRESSURE_STATUS_REFRESH_MS
+#define STATION_PRESSURE_STATUS_REFRESH_MS 15000
+#endif
 #ifndef STATION_WATCHDOG_TIMEOUT_MS
 #define STATION_WATCHDOG_TIMEOUT_MS 120000
 #endif
@@ -200,6 +206,8 @@ bool wifiReconnecting = false;
 unsigned long wifiReconnectStarted = 0;
 unsigned long lastInfluxSend = -3000000; // Track last InfluxDB send time
 unsigned long lastPressurePoll = 0;
+unsigned long lastPressureFetchAttempt = 0;
+unsigned long lastPressureStatusRefresh = 0;
 unsigned long wifiDisconnectedSince = 0;
 unsigned long pressureLowSince = 0;
 unsigned long pressureHighSince = 0;
@@ -444,13 +452,54 @@ void request_immediate_pressure_poll() {
   lastPressurePoll = 0;
 }
 
+bool parse_solenoid_pressure_json(JsonDocument &doc, SolenoidPressureSample *sample) {
+  if (!(doc["pressure_enabled"] | false)) {
+    sample->ok = false;
+    sample->stale = false;
+    return true;
+  }
+
+  sample->ok = doc["pressure_valid"] | false;
+  sample->stale = doc["pressure_stale"] | false;
+
+  if (!sample->ok && !sample->stale) {
+    sample->stale = false;
+    const char *message = doc["pressure_error"] | "unknown error";
+    Serial.print("Solenoid pressure error: ");
+    Serial.println(message);
+    return false;
+  }
+
+  if (doc["pressure_psi"].isNull()) {
+    Serial.println("Solenoid status missing pressure_psi");
+    sample->ok = false;
+    sample->stale = false;
+    return false;
+  }
+
+  sample->psi = doc["pressure_psi"].as<float>();
+  sample->battery_valid = !doc["pressure_battery_pct"].isNull();
+  sample->battery_pct =
+      sample->battery_valid ? doc["pressure_battery_pct"].as<int>() : -1;
+  if (sample->stale) {
+    const char *message = doc["pressure_error"] | "stale reading";
+    Serial.print("Solenoid pressure stale: ");
+    Serial.println(message);
+    sample->ok = false;
+  }
+  return true;
+}
+
 bool fetch_solenoid_status_once(SolenoidPressureSample *sample) {
   String url = "http://" + String(SOLENOID_HTTP_HOST) + "/status";
+  WiFiClient client;
   HTTPClient http;
 
   http.setTimeout(SOLENOID_HTTP_TIMEOUT_MS);
   http.setConnectTimeout(SOLENOID_HTTP_CONNECT_MS);
-  http.begin(url);
+  http.setReuse(false);
+  http.begin(client, url);
+  http.addHeader("Connection", "close");
 
   int httpResponseCode = http.GET();
   if (httpResponseCode != 200) {
@@ -463,7 +512,9 @@ bool fetch_solenoid_status_once(SolenoidPressureSample *sample) {
   }
 
   JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, http.getString());
+  WiFiClient *stream = http.getStreamPtr();
+  DeserializationError error =
+      stream != nullptr ? deserializeJson(doc, *stream) : DeserializationError::EmptyInput;
   http.end();
 
   if (error) {
@@ -474,34 +525,7 @@ bool fetch_solenoid_status_once(SolenoidPressureSample *sample) {
     return false;
   }
 
-  if (!(doc["pressure_enabled"] | false)) {
-    sample->ok = false;
-    sample->stale = false;
-    return true;
-  }
-
-  sample->ok = doc["pressure_valid"] | false;
-  sample->stale = doc["pressure_stale"] | false;
-
-  if (sample->ok || sample->stale) {
-    sample->psi = doc["pressure_psi"] | 0.0f;
-    sample->battery_valid = !doc["pressure_battery_pct"].isNull();
-    sample->battery_pct =
-        sample->battery_valid ? doc["pressure_battery_pct"].as<int>() : -1;
-    if (sample->stale) {
-      const char *message = doc["pressure_error"] | "stale reading";
-      Serial.print("Solenoid pressure stale: ");
-      Serial.println(message);
-      sample->ok = false;
-    }
-    return true;
-  }
-
-  sample->stale = false;
-  const char *message = doc["pressure_error"] | "unknown error";
-  Serial.print("Solenoid pressure error: ");
-  Serial.println(message);
-  return false;
+  return parse_solenoid_pressure_json(doc, sample);
 }
 
 bool fetch_solenoid_status(SolenoidPressureSample *sample) {
@@ -524,63 +548,110 @@ void reset_pressure_alarm_state() {
   pressureHighAlertSent = false;
 }
 
-void update_pressure_monitoring() {
-  const unsigned long now = millis();
+static bool pressure_cache_is_empty() {
+  return !solenoidPressureValid && !solenoidPressureStale;
+}
+
+static bool pressure_poll_due(unsigned long now) {
   const unsigned long poll_interval = pressure_poll_interval_ms();
-  if (lastPressurePoll != 0 && now - lastPressurePoll < poll_interval) {
-    return;
+  if (lastPressurePoll == 0) {
+    return true;
   }
-  lastPressurePoll = now;
-
-  SolenoidPressureSample sample;
-  sample.stale = false;
-  if (!fetch_solenoid_status(&sample)) {
-    if (solenoidPressureValid || solenoidPressureStale) {
-      solenoidPressureValid = false;
-      solenoidPressureStale = true;
-      Serial.println("Solenoid status poll failed; keeping last pressure as stale");
-    }
-    return;
+  if (now - lastPressurePoll >= poll_interval) {
+    return true;
   }
-
-  if (sample.stale) {
-    solenoidPressureValid = false;
-    solenoidPressureStale = true;
-    solenoidPressurePsi = sample.psi;
-    solenoidBatteryValid = sample.battery_valid;
-    if (sample.battery_valid) {
-      solenoidBatteryPct = sample.battery_pct;
-    }
-    return;
+  if (pressure_cache_is_empty() && lastPressureFetchAttempt != 0 &&
+      now - lastPressureFetchAttempt >= STATION_PRESSURE_FETCH_RETRY_MS) {
+    return true;
   }
+  return false;
+}
 
-  if (!sample.ok) {
+static bool apply_solenoid_pressure_sample(const SolenoidPressureSample &sample) {
+  if (!sample.ok && !sample.stale) {
     solenoidPressureValid = false;
     solenoidPressureStale = false;
-    return;
+    return false;
   }
 
-  solenoidPressureValid = true;
-  solenoidPressureStale = false;
   solenoidPressurePsi = sample.psi;
   solenoidBatteryValid = sample.battery_valid;
   if (sample.battery_valid) {
     solenoidBatteryPct = sample.battery_pct;
   }
 
+  if (sample.stale) {
+    solenoidPressureValid = false;
+    solenoidPressureStale = true;
+    return true;
+  }
+
+  solenoidPressureValid = true;
+  solenoidPressureStale = false;
+  return true;
+}
+
+bool refresh_pressure_from_solenoid() {
+  const unsigned long now = millis();
+  lastPressureFetchAttempt = now;
+
+  SolenoidPressureSample sample = {};
+  if (!fetch_solenoid_status(&sample)) {
+    if (!pressure_cache_is_empty()) {
+      solenoidPressureValid = false;
+      solenoidPressureStale = true;
+      Serial.println("Solenoid status poll failed; keeping last pressure as stale");
+    }
+    return false;
+  }
+
+  if (!sample.ok && !sample.stale) {
+    solenoidPressureValid = false;
+    solenoidPressureStale = false;
+    return false;
+  }
+
+  apply_solenoid_pressure_sample(sample);
+  lastPressurePoll = now;
+
   Serial.print("Solenoid pressure ");
   Serial.print((int)sample.psi);
-  Serial.println(" psi");
+  Serial.println(sample.stale ? " psi (stale)" : " psi");
   if (sample.battery_valid) {
     Serial.print("Solenoid sensor battery ");
     Serial.print(sample.battery_pct);
     Serial.println("%");
   }
+  return true;
+}
 
+void refresh_pressure_for_status() {
+  const unsigned long now = millis();
+  const bool cache_empty = pressure_cache_is_empty();
+  const bool cache_zero =
+      (solenoidPressureValid || solenoidPressureStale) && solenoidPressurePsi == 0.0f;
+  const bool refresh_due = lastPressureStatusRefresh == 0 ||
+                           now - lastPressureStatusRefresh >=
+                               STATION_PRESSURE_STATUS_REFRESH_MS;
+
+  if (!cache_empty && !cache_zero && !refresh_due) {
+    return;
+  }
+
+  lastPressureStatusRefresh = now;
+  refresh_pressure_from_solenoid();
+}
+
+static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
+                                     unsigned long now) {
   const bool pump_on = pump_is_active();
   if (!pump_on) {
     reset_pressure_alarm_state();
     batteryLowAlertSent = false;
+    return;
+  }
+
+  if (!sample.ok || sample.stale) {
     return;
   }
 
@@ -632,6 +703,44 @@ void update_pressure_monitoring() {
     batteryLowAlertSent = false;
     solenoidBatteryLowAlarm = false;
   }
+}
+
+void update_pressure_monitoring() {
+  const unsigned long now = millis();
+  if (!pressure_poll_due(now)) {
+    return;
+  }
+
+  SolenoidPressureSample sample = {};
+  lastPressureFetchAttempt = now;
+  if (!fetch_solenoid_status(&sample)) {
+    if (!pressure_cache_is_empty()) {
+      solenoidPressureValid = false;
+      solenoidPressureStale = true;
+      Serial.println("Solenoid status poll failed; keeping last pressure as stale");
+    }
+    return;
+  }
+
+  if (!sample.ok && !sample.stale) {
+    solenoidPressureValid = false;
+    solenoidPressureStale = false;
+    return;
+  }
+
+  apply_solenoid_pressure_sample(sample);
+  lastPressurePoll = now;
+
+  Serial.print("Solenoid pressure ");
+  Serial.print((int)sample.psi);
+  Serial.println(sample.stale ? " psi (stale)" : " psi");
+  if (sample.battery_valid) {
+    Serial.print("Solenoid sensor battery ");
+    Serial.print(sample.battery_pct);
+    Serial.println("%");
+  }
+
+  evaluate_pressure_alarms(sample, now);
 }
 
 void update_vfd() {

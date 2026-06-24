@@ -149,6 +149,8 @@ static void format_clock_label(char *buffer, size_t buflen) {
 }
 
 static void web_handle_get_status() {
+  refresh_pressure_for_status();
+
   char remaining[100];
   char duration[100];
   char nowMain[160];
@@ -225,6 +227,9 @@ static void web_handle_get_status() {
   doc["pressure_low_alarm"] = solenoidPressureLowAlarm;
   doc["pressure_high_alarm"] = solenoidPressureHighAlarm;
   doc["pressure_battery_low_alarm"] = solenoidBatteryLowAlarm;
+  if (lastPressurePoll != 0) {
+    doc["pressure_poll_seconds_ago"] = (millis() - lastPressurePoll) / 1000;
+  }
 
   JsonObject history = doc["last_watering"].to<JsonObject>();
   json_append_watering_row(history, "z1", lastWateringZ1);

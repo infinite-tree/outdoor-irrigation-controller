@@ -81,6 +81,8 @@
 // Pressure monitoring (wifi_station only). Polls solenoid /status on an interval.
 #define STATION_PRESSURE_POLL_INTERVAL_MS 300000   // 5 minutes while pump/VFD off
 #define STATION_PRESSURE_POLL_ACTIVE_MS   60000    // 1 minute while pump/VFD on (incl. remote)
+#define STATION_PRESSURE_FETCH_RETRY_MS   30000    // retry sooner after a failed poll
+#define STATION_PRESSURE_STATUS_REFRESH_MS 15000  // refresh when serving /status (web UI)
 
 // Station watchdog (wifi_station only). Restarts the board if the main loop stalls.
 #define STATION_WATCHDOG_TIMEOUT_MS       120000   // 2 minutes
