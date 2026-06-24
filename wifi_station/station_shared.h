@@ -48,6 +48,7 @@ extern bool solenoidBatteryValid;
 extern bool solenoidPressureLowAlarm;
 extern bool solenoidPressureHighAlarm;
 extern bool solenoidBatteryLowAlarm;
+extern unsigned long lastPressurePoll;
 
 struct SolenoidPressureSample {
   bool ok;
@@ -58,7 +59,11 @@ struct SolenoidPressureSample {
 };
 
 bool fetch_solenoid_status(SolenoidPressureSample *sample);
+bool refresh_pressure_from_solenoid();
+void refresh_pressure_for_status();
 void update_pressure_monitoring();
+void request_immediate_pressure_poll();
+bool pump_is_active();
 
 void format_millis(unsigned long milliseconds, char *buffer);
 String format_time_ago(unsigned long secondsAgo);

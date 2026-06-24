@@ -30,11 +30,13 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `VFD_ERROR_CLEAR_DEBOUNCE_MS` | wifi_station | Fault must stay inactive this long before UI clears (default 5 s) |
 | `VFD_ALERT_COOLDOWN_MS` | wifi_station | Minimum interval between any alert POSTs (default 30 min) |
 | `BLE_PRESSURE_*` | wifi_solenoid | BLE MAC, GATT UUIDs, and linear pressure scale; see `lib/BlePressureSensor` |
-| `PRESSURE_*` | wifi_station | Poll interval, thresholds, low/high alarm durations, battery floor; alerts use `VFD_ALERT_URL` |
+| `PRESSURE_*` | wifi_station | Poll intervals (idle/active), thresholds, low/high alarm durations, battery floor; alerts use `VFD_ALERT_URL` |
+| `STATION_WATCHDOG_TIMEOUT_MS` | wifi_station | Main-loop watchdog; auto-restart if the loop stalls (default 2 min) |
+| `STATION_WIFI_RESTART_MS` | wifi_station | Restart after prolonged WiFi loss (default 1 h; `0` disables) |
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
 
-The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`, default 10 minutes) with retries and automatic NimBLE stack reset after repeated failures (`BLE_PRESSURE_STACK_RESET_FAILURES`). Failed reads retry sooner (`BLE_PRESSURE_FAIL_RETRY_MS`, default 1 minute). Last-good PSI is kept for the e-paper display and `/status` (`pressure_stale: true` when aged); InfluxDB only receives fresh successful reads. The station polls solenoid `/status` every `STATION_PRESSURE_POLL_INTERVAL_MS` and exposes the latest reading in its own `/status`, regardless of pump state. Pressure alarms use fresh readings only (`pressure_valid`, not stale).
+The solenoid board reads a BLE pressure sensor on a timer (`BLE_PRESSURE_REFRESH_MS`, default 10 minutes) with retries and automatic NimBLE stack reset after repeated failures (`BLE_PRESSURE_STACK_RESET_FAILURES`). Failed reads retry sooner (`BLE_PRESSURE_FAIL_RETRY_MS`, default 1 minute). Last-good PSI is kept for the e-paper display and `/status` (`pressure_stale: true` when aged); InfluxDB only receives fresh successful reads. The station polls solenoid `/status` every `STATION_PRESSURE_POLL_INTERVAL_MS` while the pump/VFD is off (default 5 minutes) and every `STATION_PRESSURE_POLL_ACTIVE_MS` while the pump is on, including remote-only operation (default 1 minute). A poll runs immediately when the VFD transitions from off to on. The station web UI also triggers a solenoid refresh at most every `STATION_PRESSURE_STATUS_REFRESH_MS` (default 15 seconds) when serving `/status`, so the displayed PSI tracks the solenoid without waiting for the background poll. Failed polls keep the last-known PSI as stale instead of clearing the display, and retry sooner (`STATION_PRESSURE_FETCH_RETRY_MS`) when no reading is cached yet.
 
 If the pump is on (`vfd` > 0) and pressure stays below `PRESSURE_LOW_PSI` for `PRESSURE_LOW_ALARM_DURATION_MS`, or above `PRESSURE_HIGH_PSI` for `PRESSURE_HIGH_ALARM_DURATION_MS`, or if battery drops below `PRESSURE_BATTERY_LOW_PCT`, the station POSTs to `VFD_ALERT_URL` with the configured summary strings (same JSON shape as the VFD fault alert).
 
@@ -51,6 +53,14 @@ On a sustained fault (active for `VFD_ERROR_DEBOUNCE_MS`, default 2 s) the stati
 ```
 
 `datetime` uses local time from NTP (`MY_TZ` in `wifi_station.ino`). The fault input is majority-sampled over ~160 ms (same approach as the remote pump input). Alert POSTs are rate-limited to one per `VFD_ALERT_COOLDOWN_MS` (default 30 minutes) across all alert types sharing `VFD_ALERT_URL`. The UI clears only after the fault input stays inactive for `VFD_ERROR_CLEAR_DEBOUNCE_MS` (default 5 s); a real Frenic fault stays latched until reset on the drive.
+
+### Station watchdog (wifi_station)
+
+The station enables the ESP32 task watchdog on boot (`STATION_WATCHDOG_TIMEOUT_MS`, default 2 minutes). The main loop feeds the watchdog each iteration and during long operations (remote input sampling, e-paper refresh). If the firmware hangs without returning to the loop, the board restarts automatically.
+
+If WiFi stays disconnected longer than `STATION_WIFI_RESTART_MS` (default 1 hour, `0` to disable), the station restarts to recover from a stuck network stack.
+
+`GET /health` returns uptime, free heap, WiFi status, pump/remote state, and pressure poll age for external monitoring.
 
 ## Custom logo
 
