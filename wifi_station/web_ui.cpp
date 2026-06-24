@@ -4,6 +4,10 @@
 
 #include <ArduinoJson.h>
 
+#ifndef STATION_WATCHDOG_TIMEOUT_MS
+#define STATION_WATCHDOG_TIMEOUT_MS 120000
+#endif
+
 #define UI_STATUS_OFF   0
 #define UI_STATUS_ON    1
 #define UI_STATUS_ERROR 2
@@ -145,6 +149,8 @@ static void format_clock_label(char *buffer, size_t buflen) {
 }
 
 static void web_handle_get_status() {
+  refresh_pressure_for_status();
+
   char remaining[100];
   char duration[100];
   char nowMain[160];
@@ -221,6 +227,9 @@ static void web_handle_get_status() {
   doc["pressure_low_alarm"] = solenoidPressureLowAlarm;
   doc["pressure_high_alarm"] = solenoidPressureHighAlarm;
   doc["pressure_battery_low_alarm"] = solenoidBatteryLowAlarm;
+  if (lastPressurePoll != 0) {
+    doc["pressure_poll_seconds_ago"] = (millis() - lastPressurePoll) / 1000;
+  }
 
   JsonObject history = doc["last_watering"].to<JsonObject>();
   json_append_watering_row(history, "z1", lastWateringZ1);
@@ -306,6 +315,35 @@ static void web_handle_put_schedules() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+static void web_handle_health() {
+  static JsonDocument doc;
+  doc.clear();
+
+  doc["uptime_sec"] = millis() / 1000;
+  doc["heap_free"] = ESP.getFreeHeap();
+  doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+  if (WiFi.status() == WL_CONNECTED) {
+    doc["wifi_rssi"] = WiFi.RSSI();
+  }
+  doc["pump_active"] = pump_is_active();
+  doc["vfd"] = vfdMode;
+  doc["remote_signal_on"] = remoteSignalOn;
+  doc["timer_running"] = timerRunning;
+  doc["pressure_valid"] = solenoidPressureValid;
+  doc["pressure_stale"] = solenoidPressureStale;
+  if (solenoidPressureValid || solenoidPressureStale) {
+    doc["pressure_psi"] = (int)solenoidPressurePsi;
+  }
+  if (lastPressurePoll != 0) {
+    doc["pressure_poll_seconds_ago"] = (millis() - lastPressurePoll) / 1000;
+  }
+  doc["watchdog_timeout_sec"] = STATION_WATCHDOG_TIMEOUT_MS / 1000;
+
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
 static bool webRoutesRegistered = false;
 static bool webServerStarted = false;
 
@@ -317,6 +355,7 @@ void web_server_init() {
     server.on("/app.js", web_handle_app_js);
     server.on("/message.html", web_handle_message);
     server.on("/status", HTTP_GET, web_handle_get_status);
+    server.on("/health", HTTP_GET, web_handle_health);
     server.on("/start", HTTP_POST, web_handle_start_timer);
     server.on("/stop", HTTP_POST, web_handle_stop_timer);
     server.on("/schedules", HTTP_GET, web_handle_get_schedules);
