@@ -239,6 +239,7 @@ static void web_handle_get_status() {
   json_append_watering_row(history, "z2", lastWateringZ2);
   json_append_watering_row(history, "gh", lastWateringGH);
   json_append_watering_row(history, "wc", lastWateringWC);
+  json_append_watering_row(history, "remote", lastWateringRemote);
 
   schedule_append_status_json(doc);
 

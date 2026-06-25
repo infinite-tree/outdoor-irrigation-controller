@@ -183,7 +183,8 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     ['Zone 1', 'z1'],
     ['Zone 2', 'z2'],
     ['Greenhouse', 'gh'],
-    ['Water cannon', 'wc']
+    ['Water cannon', 'wc'],
+    ['Remote', 'remote']
   ];
 
   const ZONE_OPTIONS = [

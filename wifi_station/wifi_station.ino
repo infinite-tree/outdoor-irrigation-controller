@@ -184,6 +184,10 @@ WateringRecord lastWateringZ1 = {0, 0};
 WateringRecord lastWateringZ2 = {0, 0};
 WateringRecord lastWateringGH = {0, 0};
 WateringRecord lastWateringWC = {0, 0};
+WateringRecord lastWateringRemote = {0, 0};
+
+unsigned long remoteRunStartMs = 0;
+time_t remoteRunStartEpoch = 0;
 
 void record_watering_for_mode(byte mode, time_t startEpoch, unsigned long durationMs) {
   WateringRecord record = {startEpoch, durationMs};
@@ -208,6 +212,11 @@ void record_watering_for_mode(byte mode, time_t startEpoch, unsigned long durati
       break;
   }
 }
+
+void record_remote_watering(time_t startEpoch, unsigned long durationMs) {
+  lastWateringRemote = {startEpoch, durationMs};
+}
+
 int vfdMode = 0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long wifiConnectionUpdate = 0;
@@ -1114,11 +1123,18 @@ void loop() {
   bool remote_on = read_remote_pump_input();
   if (!remoteSignalOn && remote_on) {
     remoteSignalOn = true;
+    remoteRunStartMs = millis();
+    time(&remoteRunStartEpoch);
     Serial.println("REMOTE OFF -> ON");
     update_vfd();
     pendingDisplayUpdate = true;
   } else if (remoteSignalOn && !remote_on) {
     remoteSignalOn = false;
+    if (remoteRunStartEpoch != 0) {
+      record_remote_watering(remoteRunStartEpoch, millis() - remoteRunStartMs);
+    }
+    remoteRunStartMs = 0;
+    remoteRunStartEpoch = 0;
     Serial.println("REMOTE ON -> OFF");
     update_vfd();
     pendingDisplayUpdate = true;
