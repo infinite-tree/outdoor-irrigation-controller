@@ -34,8 +34,10 @@ extern WateringRecord lastWateringZ1;
 extern WateringRecord lastWateringZ2;
 extern WateringRecord lastWateringGH;
 extern WateringRecord lastWateringWC;
+extern WateringRecord lastWateringRemote;
 
 void record_watering_for_mode(byte mode, time_t startEpoch, unsigned long durationMs);
+void record_remote_watering(time_t startEpoch, unsigned long durationMs);
 extern byte currentZoneState;
 extern int vfdMode;
 extern bool remoteSignalOn;
