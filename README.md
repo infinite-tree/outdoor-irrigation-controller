@@ -33,6 +33,8 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `PRESSURE_*` | wifi_station | Poll intervals (idle/active), thresholds, low/high alarm durations, battery floor; alerts use `VFD_ALERT_URL` |
 | `STATION_WATCHDOG_TIMEOUT_MS` | wifi_station | Main-loop watchdog; auto-restart if the loop stalls (default 2 min) |
 | `STATION_WIFI_RESTART_MS` | wifi_station | Restart after prolonged WiFi loss (default 1 h; `0` disables) |
+| `SOLENOID_WATCHDOG_TIMEOUT_MS` | wifi_solenoid | Main-loop watchdog; auto-restart if the loop stalls (default 2 min) |
+| `SOLENOID_WIFI_RESTART_MS` | wifi_solenoid | Restart after prolonged WiFi loss (default 1 h; `0` disables) |
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
 
@@ -62,6 +64,14 @@ If WiFi stays disconnected longer than `STATION_WIFI_RESTART_MS` (default 1 hour
 
 `GET /health` returns uptime, free heap, WiFi status, pump/remote state, and pressure poll age for external monitoring.
 
+### Solenoid watchdog (wifi_solenoid)
+
+The solenoid enables the ESP32 task watchdog on boot (`SOLENOID_WATCHDOG_TIMEOUT_MS`, default 2 minutes). The main loop feeds the watchdog each iteration and during e-paper refresh. If the firmware hangs without returning to the loop, the board restarts automatically.
+
+If WiFi stays disconnected longer than `SOLENOID_WIFI_RESTART_MS` (default 1 hour, `0` to disable), the solenoid restarts to recover from a stuck network stack.
+
+`GET /health` returns uptime, free heap, WiFi status, zone state, and pressure read age for external monitoring.
+
 ## Custom logo
 
 Source image: `logo-200-blk.png` (converted to `lib/Logo/Logo.h`).
@@ -81,7 +91,7 @@ To regenerate the bitmap:
 Edit files under each project’s `web/` folder (`index.html`, `style.css`, `app.js`). A pre-build step embeds them into `web_assets.h` as PROGMEM. HTTP routes and JSON live in `web_ui.cpp`; hardware and irrigation logic stay in the `.ino` files.
 
 - **wifi_station** — timer, zone status, watering history
-- **wifi_solenoid** — zone 1/2 on/off (`GET /status` includes pressure, `POST /set_zone` with `zone1` and `zone2`)
+- **wifi_solenoid** — zone 1/2 on/off (`GET /status` includes pressure, `POST /set_zone` with `zone1` and `zone2`, `GET /health` for monitoring)
 
 ## Libraries
 

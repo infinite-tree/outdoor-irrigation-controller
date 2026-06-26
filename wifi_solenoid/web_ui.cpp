@@ -4,6 +4,10 @@
 
 #include <ArduinoJson.h>
 
+#ifndef SOLENOID_WATCHDOG_TIMEOUT_MS
+#define SOLENOID_WATCHDOG_TIMEOUT_MS 120000
+#endif
+
 static void web_serve_progmem(const char *content_type, const char *body) {
   server.send_P(200, content_type, body);
 }
@@ -104,6 +108,41 @@ static void web_handle_set_zone() {
   server.send(200, "text/plain", "Zones set");
 }
 
+static void web_handle_health() {
+  static JsonDocument doc;
+  doc.clear();
+
+  doc["uptime_sec"] = millis() / 1000;
+  doc["heap_free"] = ESP.getFreeHeap();
+  doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+  if (WiFi.status() == WL_CONNECTED) {
+    doc["wifi_rssi"] = WiFi.RSSI();
+  }
+  doc["zone1_on"] = zone1On;
+  doc["zone2_on"] = zone2On;
+  doc["pressure_enabled"] = ble_pressure_enabled();
+  if (ble_pressure_enabled()) {
+    doc["pressure_valid"] = ble_pressure_is_fresh();
+    doc["pressure_stale"] = ble_pressure_is_stale();
+    if (ble_pressure_has_cache()) {
+      const BlePressureReading reading = ble_pressure_get_cached();
+      doc["pressure_psi"] = (int)reading.psi;
+      if (reading.battery_valid) {
+        doc["pressure_battery_pct"] = reading.battery_pct;
+      }
+      const unsigned long age_sec = ble_pressure_last_success_age_sec();
+      if (age_sec != ULONG_MAX) {
+        doc["pressure_read_seconds_ago"] = age_sec;
+      }
+    }
+  }
+  doc["watchdog_timeout_sec"] = SOLENOID_WATCHDOG_TIMEOUT_MS / 1000;
+
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
 void web_server_init() {
   Serial.print("Starting webserver ...");
   server.on("/", web_handle_index);
@@ -111,6 +150,7 @@ void web_server_init() {
   server.on("/style.css", web_handle_style);
   server.on("/app.js", web_handle_app_js);
   server.on("/status", HTTP_GET, web_handle_get_status);
+  server.on("/health", HTTP_GET, web_handle_health);
   server.on("/set_zone", HTTP_POST, web_handle_set_zone);
   server.begin();
   Serial.println("HTTP server started");
