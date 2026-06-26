@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 #include <time.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>
@@ -30,6 +31,12 @@
 #endif
 #ifndef INFLUX_DELAY
 #define INFLUX_DELAY 300000
+#endif
+#ifndef SOLENOID_WATCHDOG_TIMEOUT_MS
+#define SOLENOID_WATCHDOG_TIMEOUT_MS 120000
+#endif
+#ifndef SOLENOID_WIFI_RESTART_MS
+#define SOLENOID_WIFI_RESTART_MS 3600000
 #endif
 
 #define EDP_BUSY_PIN            48
@@ -72,6 +79,9 @@ GxEPD_Class display(io, EDP_RSET_PIN, EDP_BUSY_PIN);
 unsigned long lastDisplayUpdate = 0;
 unsigned long lastInfluxSend = -3000000;
 unsigned long wifiConnectionUpdate = 0;
+unsigned long wifiDisconnectedSince = 0;
+bool wifiReconnecting = false;
+unsigned long wifiReconnectStarted = 0;
 bool zone1On = false;
 bool zone2On = false;
 byte zoneStatus = 0;
@@ -248,7 +258,29 @@ void init_display() {
   Serial.println("ready!");
 }
 
-void init_wifi() {
+void solenoid_watchdog_init() {
+  esp_task_wdt_deinit();
+#if ESP_IDF_VERSION_MAJOR >= 5
+  esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = SOLENOID_WATCHDOG_TIMEOUT_MS,
+      .idle_core_mask = 0,
+      .trigger_panic = true,
+  };
+  esp_task_wdt_init(&wdt_config);
+#else
+  esp_task_wdt_init(SOLENOID_WATCHDOG_TIMEOUT_MS / 1000, true);
+#endif
+  esp_task_wdt_add(NULL);
+  Serial.print("Watchdog enabled (");
+  Serial.print(SOLENOID_WATCHDOG_TIMEOUT_MS / 1000);
+  Serial.println(" s timeout)");
+}
+
+void solenoid_watchdog_feed() {
+  esp_task_wdt_reset();
+}
+
+bool wifi_connect(unsigned long timeout_ms) {
   Serial.print("Connecting to wifi ");
 
   if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, primaryDNS)) {
@@ -258,7 +290,13 @@ void init_wifi() {
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long started = millis();
   while (WiFi.status() != WL_CONNECTED) {
+    if (timeout_ms > 0 && (millis() - started) >= timeout_ms) {
+      Serial.println("\nWiFi connect timeout");
+      return false;
+    }
     delay(500);
     Serial.print(".");
   }
@@ -266,6 +304,7 @@ void init_wifi() {
 
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
+  return true;
 }
 
 void setup() {
@@ -282,16 +321,21 @@ void setup() {
   setenv("TZ", MY_TZ, 1);
   tzset();
 
-  init_wifi();
+  wifi_connect(30000);
   setupInflux();
   ble_pressure_init();
   ble_pressure_start_task();
   web_server_init();
+  solenoid_watchdog_init();
 
+  solenoid_watchdog_feed();
   update_display_status();
+  solenoid_watchdog_feed();
 }
 
 void loop() {
+  solenoid_watchdog_feed();
+
   web_server_poll();
 
   const bool pressure_refreshed = ble_pressure_take_display_dirty();
@@ -302,18 +346,44 @@ void loop() {
   if (millis() - wifiConnectionUpdate > WIFI_CONNECTION_MILLIS) {
     wifiConnectionUpdate = millis();
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("ERROR: Wifi disconnected!");
-      server.close();
-      WiFi.disconnect();
-      init_wifi();
-      web_server_init();
+      if (wifiDisconnectedSince == 0) {
+        wifiDisconnectedSince = millis();
+      }
+      if (!wifiReconnecting) {
+        Serial.println("ERROR: Wifi disconnected, retrying...");
+        WiFi.disconnect();
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        wifiReconnecting = true;
+        wifiReconnectStarted = millis();
+      }
+#if SOLENOID_WIFI_RESTART_MS > 0
+      if (millis() - wifiDisconnectedSince > SOLENOID_WIFI_RESTART_MS) {
+        Serial.println("WiFi down too long; restarting solenoid");
+        delay(100);
+        ESP.restart();
+      }
+#endif
+    } else {
+      wifiDisconnectedSince = 0;
+      if (wifiReconnecting) {
+        wifiReconnecting = false;
+        Serial.println("WiFi reconnected");
+        Serial.println(WiFi.localIP());
+      }
     }
+  }
+
+  if (wifiReconnecting && millis() - wifiReconnectStarted > 30000) {
+    Serial.println("WiFi retry timeout, will try again");
+    wifiReconnecting = false;
   }
 
   if (webAction || pressure_refreshed ||
       millis() - lastDisplayUpdate > display_interval) {
     webAction = false;
+    solenoid_watchdog_feed();
     update_display_status();
+    solenoid_watchdog_feed();
   }
 
   if (millis() - lastInfluxSend > INFLUX_DELAY) {
