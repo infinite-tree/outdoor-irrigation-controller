@@ -152,7 +152,7 @@ static void format_clock_label(char *buffer, size_t buflen) {
 }
 
 static void web_handle_get_status() {
-  refresh_pressure_for_status();
+  request_pressure_for_status_refresh();
 
   char remaining[100];
   char duration[100];

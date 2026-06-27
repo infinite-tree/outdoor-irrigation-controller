@@ -62,7 +62,8 @@ struct SolenoidPressureSample {
 
 bool fetch_solenoid_status(SolenoidPressureSample *sample);
 bool refresh_pressure_from_solenoid();
-void refresh_pressure_for_status();
+void request_pressure_for_status_refresh();
+void process_pending_pressure_status_refresh();
 void update_pressure_monitoring();
 void request_immediate_pressure_poll();
 bool pump_is_active();

@@ -1,9 +1,14 @@
 (function () {
   const POLL_MS = 3000;
+  const STATUS_RETRY_ATTEMPTS = 4;
+  const STATUS_RETRY_DELAY_MS = 700;
+  const STATUS_OFFLINE_AFTER = 3;
 
   let pending = { z1: '0', z2: '0' };
   let saving = false;
   let lastServerZones = null;
+  let statusPollInFlight = false;
+  let statusOfflineStreak = 0;
 
   function chipHtml(label, on) {
     const cls = on ? 'chip-on' : 'chip-off';
@@ -165,13 +170,54 @@
     }
   }
 
+  function fetchStatus() {
+    return fetch('/status').then(function (r) {
+      if (!r.ok) {
+        throw new Error('status');
+      }
+      return r.json();
+    });
+  }
+
+  function fetchStatusWithRetry(maxAttempts, delayMs) {
+    function attempt(tryNum) {
+      return fetchStatus().catch(function () {
+        if (tryNum < maxAttempts) {
+          return new Promise(function (resolve) {
+            setTimeout(resolve, delayMs);
+          }).then(function () {
+            return attempt(tryNum + 1);
+          });
+        }
+        throw new Error('offline');
+      });
+    }
+    return attempt(1);
+  }
+
+  function renderOffline() {
+    document.getElementById('chips').innerHTML =
+      '<div class="chip chip-off" style="grid-column:span 2"><b>Status</b>Offline</div>';
+  }
+
   function refresh() {
-    return fetch('/status')
-      .then(function (r) { return r.json(); })
-      .then(renderStatus)
+    if (saving || statusPollInFlight) {
+      return Promise.resolve();
+    }
+    statusPollInFlight = true;
+    return fetchStatusWithRetry(STATUS_RETRY_ATTEMPTS, STATUS_RETRY_DELAY_MS)
+      .then(function (s) {
+        statusOfflineStreak = 0;
+        renderStatus(s);
+      })
       .catch(function () {
-        document.getElementById('chips').innerHTML =
-          '<div class="chip chip-off" style="grid-column:span 2"><b>Status</b>Offline</div>';
+        statusOfflineStreak++;
+        if (statusOfflineStreak >= STATUS_OFFLINE_AFTER) {
+          renderOffline();
+        }
+      })
+      .finally(function () {
+        statusPollInFlight = false;
       });
   }
 

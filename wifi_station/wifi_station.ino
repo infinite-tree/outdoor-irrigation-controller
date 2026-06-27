@@ -361,7 +361,7 @@ bool send_zone_command(byte zone_state) {
 
     if (attempt < SOLENOID_HTTP_RETRY_COUNT) {
       Serial.printf("Retrying solenoid command in %lu ms\n", SOLENOID_HTTP_RETRY_DELAY_MS);
-      delay(SOLENOID_HTTP_RETRY_DELAY_MS);
+      station_service_web_during_wait(SOLENOID_HTTP_RETRY_DELAY_MS);
     }
   }
 
@@ -473,6 +473,15 @@ void station_watchdog_feed() {
   esp_task_wdt_reset();
 }
 
+static void station_service_web_during_wait(unsigned long delay_ms) {
+  const unsigned long end_ms = millis() + delay_ms;
+  while ((long)(end_ms - millis()) > 0) {
+    server.handleClient();
+    station_watchdog_feed();
+    delay(10);
+  }
+}
+
 bool pump_is_active() {
   return vfdMode > 0 || remoteSignalOn;
 }
@@ -568,8 +577,7 @@ bool fetch_solenoid_status(SolenoidPressureSample *sample) {
       return true;
     }
     if (attempt < SOLENOID_HTTP_RETRY_COUNT) {
-      delay(SOLENOID_HTTP_RETRY_DELAY_MS);
-      station_watchdog_feed();
+      station_service_web_during_wait(SOLENOID_HTTP_RETRY_DELAY_MS);
     }
   }
   return false;
@@ -659,7 +667,10 @@ bool refresh_pressure_from_solenoid() {
   return true;
 }
 
-void refresh_pressure_for_status() {
+static volatile bool pressure_status_refresh_pending = false;
+static bool pressure_status_refresh_in_progress = false;
+
+void request_pressure_for_status_refresh() {
   const unsigned long now = millis();
   const bool cache_empty = pressure_cache_is_empty();
   const bool cache_zero =
@@ -672,8 +683,19 @@ void refresh_pressure_for_status() {
     return;
   }
 
-  lastPressureStatusRefresh = now;
+  pressure_status_refresh_pending = true;
+}
+
+void process_pending_pressure_status_refresh() {
+  if (!pressure_status_refresh_pending || pressure_status_refresh_in_progress) {
+    return;
+  }
+
+  pressure_status_refresh_pending = false;
+  pressure_status_refresh_in_progress = true;
+  lastPressureStatusRefresh = millis();
   refresh_pressure_from_solenoid();
+  pressure_status_refresh_in_progress = false;
 }
 
 static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
@@ -1108,7 +1130,9 @@ void setup() {
 void loop() {
   station_watchdog_feed();
 
-  //  service web requests
+  // Service web requests first; never block inside HTTP handlers.
+  server.handleClient();
+  process_pending_pressure_status_refresh();
   server.handleClient();
 
   // Handle timer

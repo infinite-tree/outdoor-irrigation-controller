@@ -10,6 +10,10 @@ extern WebServer server;
 extern bool zone1On;
 extern bool zone2On;
 extern bool webAction;
+extern unsigned long lastWebRequestMs;
+extern bool pendingDisplayUpdate;
+
+void solenoid_mark_web_activity();
 
 void open_solenoid(uint8_t zone);
 void close_solenoid(uint8_t zone);

@@ -9,6 +9,7 @@
 #endif
 
 static void web_serve_progmem(const char *content_type, const char *body) {
+  solenoid_mark_web_activity();
   server.send_P(200, content_type, body);
 }
 
@@ -68,6 +69,7 @@ static void append_pressure_json(JsonDocument &doc) {
 }
 
 static void web_handle_get_status() {
+  solenoid_mark_web_activity();
   JsonDocument doc;
   doc["zone1_on"] = zone1On;
   doc["zone2_on"] = zone2On;
@@ -84,6 +86,7 @@ static void web_handle_get_status() {
 }
 
 static void web_handle_set_zone() {
+  solenoid_mark_web_activity();
   webAction = true;
   if (!server.hasArg("zone1") || !server.hasArg("zone2")) {
     server.send(400, "text/plain", "Missing parameters");
@@ -109,6 +112,7 @@ static void web_handle_set_zone() {
 }
 
 static void web_handle_health() {
+  solenoid_mark_web_activity();
   static JsonDocument doc;
   doc.clear();
 
@@ -157,5 +161,7 @@ void web_server_init() {
 }
 
 void web_server_poll() {
-  server.handleClient();
+  for (uint8_t i = 0; i < 4; i++) {
+    server.handleClient();
+  }
 }

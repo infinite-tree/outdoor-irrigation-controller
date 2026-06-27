@@ -169,12 +169,15 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
   const POLL_MS = 3000;
   const STATUS_RETRY_ATTEMPTS = 4;
   const STATUS_RETRY_DELAY_MS = 700;
+  const STATUS_OFFLINE_AFTER = 3;
   const ACTION_POLL_MS = 500;
   const ACTION_MAX_WAIT_MS = 45000;
   let controlsRunning = null;
   let schedules = [];
   let nextTempId = 1;
   let actionInFlight = false;
+  let statusPollInFlight = false;
+  let statusOfflineStreak = 0;
   let savedSnapshot = '[]';
   let editingKey = null;
   let editingIsNew = false;
@@ -922,13 +925,23 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
   }
 
   function refresh() {
-    if (actionInFlight) {
+    if (actionInFlight || statusPollInFlight) {
       return;
     }
+    statusPollInFlight = true;
     fetchStatusWithRetry(STATUS_RETRY_ATTEMPTS, STATUS_RETRY_DELAY_MS)
-      .then(renderStatus)
+      .then(function (s) {
+        statusOfflineStreak = 0;
+        renderStatus(s);
+      })
       .catch(function () {
-        setNowMain('Offline');
+        statusOfflineStreak++;
+        if (statusOfflineStreak >= STATUS_OFFLINE_AFTER) {
+          setNowMain('Offline');
+        }
+      })
+      .finally(function () {
+        statusPollInFlight = false;
       });
   }
 

@@ -38,6 +38,12 @@
 #ifndef SOLENOID_WIFI_RESTART_MS
 #define SOLENOID_WIFI_RESTART_MS 3600000
 #endif
+#ifndef SOLENOID_DISPLAY_WEB_QUIET_MS
+#define SOLENOID_DISPLAY_WEB_QUIET_MS 3000
+#endif
+#ifndef SOLENOID_INFLUX_WEB_QUIET_MS
+#define SOLENOID_INFLUX_WEB_QUIET_MS 5000
+#endif
 
 #define EDP_BUSY_PIN            48
 #define EDP_RSET_PIN            47
@@ -86,6 +92,24 @@ bool zone1On = false;
 bool zone2On = false;
 byte zoneStatus = 0;
 bool webAction = false;
+unsigned long lastWebRequestMs = 0;
+bool pendingDisplayUpdate = false;
+
+void solenoid_watchdog_feed();
+void web_server_poll();
+
+void solenoid_mark_web_activity() {
+  lastWebRequestMs = millis();
+}
+
+static void solenoid_service_web_during_wait(unsigned long delay_ms) {
+  const unsigned long end_ms = millis() + delay_ms;
+  while ((long)(end_ms - millis()) > 0) {
+    web_server_poll();
+    solenoid_watchdog_feed();
+    delay(10);
+  }
+}
 
 IPAddress local_IP(SOLENOID_STATIC_IP_0, SOLENOID_STATIC_IP_1, SOLENOID_STATIC_IP_2, SOLENOID_STATIC_IP_3);
 IPAddress gateway(LAN_GATEWAY_0, LAN_GATEWAY_1, LAN_GATEWAY_2, LAN_GATEWAY_3);
@@ -134,7 +158,7 @@ void open_solenoid(uint8_t zone) {
   if (zone == ZONE1) {
     digitalWrite(ZONE1_PIN_A, LOW);
     digitalWrite(ZONE1_PIN_B, HIGH);
-    delay(SOLENOID_PULSE_LENGTH);
+    solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH);
     digitalWrite(ZONE1_PIN_A, LOW);
     digitalWrite(ZONE1_PIN_B, LOW);
     zone1On = true;
@@ -144,7 +168,7 @@ void open_solenoid(uint8_t zone) {
   } else if (zone == ZONE2) {
     digitalWrite(ZONE2_PIN_A, LOW);
     digitalWrite(ZONE2_PIN_B, HIGH);
-    delay(SOLENOID_PULSE_LENGTH);
+    solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH);
     digitalWrite(ZONE2_PIN_A, LOW);
     digitalWrite(ZONE2_PIN_B, LOW);
     zone2On = true;
@@ -157,7 +181,7 @@ void close_solenoid(uint8_t zone) {
   if (zone == ZONE1) {
     digitalWrite(ZONE1_PIN_A, HIGH);
     digitalWrite(ZONE1_PIN_B, LOW);
-    delay(SOLENOID_PULSE_LENGTH);
+    solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH);
     digitalWrite(ZONE1_PIN_A, LOW);
     digitalWrite(ZONE1_PIN_B, LOW);
     zone1On = false;
@@ -167,7 +191,7 @@ void close_solenoid(uint8_t zone) {
   } else if (zone == ZONE2) {
     digitalWrite(ZONE2_PIN_A, HIGH);
     digitalWrite(ZONE2_PIN_B, LOW);
-    delay(SOLENOID_PULSE_LENGTH);
+    solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH);
     digitalWrite(ZONE2_PIN_A, LOW);
     digitalWrite(ZONE2_PIN_B, LOW);
     zone2On = false;
@@ -198,7 +222,7 @@ void update_display_status() {
   display.setTextColor(GxEPD_BLACK);
   display.setFont(&FreeMonoBold9pt7b);
   display.fillScreen(GxEPD_WHITE);
-  delay(10);
+  solenoid_service_web_during_wait(10);
   display.drawExampleBitmap(logo_200_blk, 0, 0, 72, 128, GxEPD_BLACK);
 
   display.setCursor(90, 35);
@@ -237,8 +261,10 @@ void update_display_status() {
   display.setCursor(182, 95);
   display.println(battery_text);
 
+  web_server_poll();
   display.update();
   lastDisplayUpdate = millis();
+  web_server_poll();
 }
 
 void init_display() {
@@ -337,6 +363,7 @@ void loop() {
   solenoid_watchdog_feed();
 
   web_server_poll();
+  web_server_poll();
 
   const bool pressure_refreshed = ble_pressure_take_display_dirty();
   const unsigned long display_interval = ble_pressure_enabled()
@@ -378,15 +405,24 @@ void loop() {
     wifiReconnecting = false;
   }
 
-  if (webAction || pressure_refreshed ||
-      millis() - lastDisplayUpdate > display_interval) {
+  if (webAction || pressure_refreshed) {
     webAction = false;
+    pendingDisplayUpdate = true;
+  }
+  if (millis() - lastDisplayUpdate > display_interval) {
+    pendingDisplayUpdate = true;
+  }
+
+  const unsigned long web_quiet_ms = millis() - lastWebRequestMs;
+  if (pendingDisplayUpdate && web_quiet_ms >= SOLENOID_DISPLAY_WEB_QUIET_MS) {
+    pendingDisplayUpdate = false;
     solenoid_watchdog_feed();
     update_display_status();
     solenoid_watchdog_feed();
   }
 
-  if (millis() - lastInfluxSend > INFLUX_DELAY) {
+  if (millis() - lastInfluxSend > INFLUX_DELAY &&
+      web_quiet_ms >= SOLENOID_INFLUX_WEB_QUIET_MS) {
     lastInfluxSend = millis();
     Serial.println("Sending pressure data to influx...");
     if (!sendPressureToInflux()) {
