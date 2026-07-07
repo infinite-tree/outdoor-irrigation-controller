@@ -1,6 +1,7 @@
 #include "solenoid_shared.h"
 #include "web_assets.h"
 #include "ble_pressure.h"
+#include "display_task.h"
 
 #include <ArduinoJson.h>
 
@@ -84,7 +85,6 @@ static void web_handle_get_status() {
 }
 
 static void web_handle_set_zone() {
-  webAction = true;
   if (!server.hasArg("zone1") || !server.hasArg("zone2")) {
     server.send(400, "text/plain", "Missing parameters");
     return;
@@ -106,6 +106,7 @@ static void web_handle_set_zone() {
   }
 
   server.send(200, "text/plain", "Zones set");
+  display_task_request_refresh();
 }
 
 static void web_handle_health() {

@@ -9,7 +9,6 @@
 extern WebServer server;
 extern bool zone1On;
 extern bool zone2On;
-extern bool webAction;
 
 void open_solenoid(uint8_t zone);
 void close_solenoid(uint8_t zone);
