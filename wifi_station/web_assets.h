@@ -35,6 +35,7 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
         <div class="next-run hidden" id="next-run"></div>
         <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
         <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
+        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled until reboot</div>
         <div class="chips" id="chips"></div>
       </section>
 
@@ -439,6 +440,13 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       vfdAlert.classList.remove('hidden');
     } else {
       vfdAlert.classList.add('hidden');
+    }
+
+    const pressureLockoutAlert = document.getElementById('pressure-lockout-alert');
+    if (s.vfd_low_pressure_lockout) {
+      pressureLockoutAlert.classList.remove('hidden');
+    } else {
+      pressureLockoutAlert.classList.add('hidden');
     }
 
     const z = s.zones || {};

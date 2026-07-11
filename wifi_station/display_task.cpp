@@ -20,6 +20,7 @@
 extern GxEPD_Class display;
 extern bool remoteSignalOn;
 extern bool vfdErrorActive;
+extern bool vfdLowPressureLockout;
 extern byte currentZoneState;
 extern int vfdMode;
 extern bool timerRunning;
@@ -57,7 +58,9 @@ static void render_display_status() {
     strcpy(manual_status, "CANN");
   }
 
-  if (vfdErrorActive) {
+  if (vfdLowPressureLockout) {
+    strcpy(pump_status, "LOCK");
+  } else if (vfdErrorActive) {
     strcpy(pump_status, "ERROR");
   } else if (vfdMode == 1) {
     strcpy(pump_status, "HALF");

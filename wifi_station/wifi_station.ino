@@ -153,6 +153,7 @@ GxEPD_Class display(io, EDP_RSET_PIN, EDP_BUSY_PIN);
 
 bool remoteSignalOn = false;
 bool vfdErrorActive = false;
+bool vfdLowPressureLockout = false;
 byte currentZoneState = ZONES_OFF;
 
 float solenoidPressurePsi = 0.0f;
@@ -676,6 +677,8 @@ void refresh_pressure_for_status() {
   refresh_pressure_from_solenoid();
 }
 
+static void trigger_low_pressure_vfd_lockout();
+
 static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
                                      unsigned long now) {
   const bool pump_on = pump_is_active();
@@ -698,15 +701,17 @@ static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
     }
     if (!pressureLowAlertSent &&
         now - pressureLowSince >= PRESSURE_LOW_ALARM_DURATION_MS) {
-      solenoidPressureLowAlarm = true;
       pressureLowAlertSent = true;
       send_vfd_error_alert(PRESSURE_LOW_SUMMARY, datetime);
       Serial.println("Solenoid pressure low alarm");
+      trigger_low_pressure_vfd_lockout();
     }
   } else {
     pressureLowSince = 0;
-    pressureLowAlertSent = false;
-    solenoidPressureLowAlarm = false;
+    if (!vfdLowPressureLockout) {
+      pressureLowAlertSent = false;
+      solenoidPressureLowAlarm = false;
+    }
   }
 
   if (sample.psi > PRESSURE_HIGH_PSI) {
@@ -781,6 +786,13 @@ void update_vfd() {
   const uint8_t prev_vfd_mode = vfdMode;
   int  vfd_power = 0;
 
+  if (vfdLowPressureLockout) {
+    vfdMode = 0;
+    digitalWrite(HALF_PWR_OUTPUT_PIN, RELAY_OFF);
+    digitalWrite(FULL_PWR_OUTPUT_PIN, RELAY_OFF);
+    return;
+  }
+
   // if the system is trying to stop, then don't pay attention to the current state becuase the VFD needs to stop first
   if (timerRunning) {
     if (currentZoneState == ZONE1_ON) vfd_power++;
@@ -817,6 +829,11 @@ void update_vfd() {
 
 
 void start_timer() {
+  if (vfdLowPressureLockout) {
+    Serial.println("Start blocked: low pressure VFD lockout");
+    return;
+  }
+
   wateringRunActive = false;
 
   if (timerMode != GREENHOUSE_ON && timerMode != CANON_ON) {
@@ -866,6 +883,21 @@ void stop_timer() {
   }
 
   display_task_request_refresh();
+}
+
+static void trigger_low_pressure_vfd_lockout() {
+  if (vfdLowPressureLockout) {
+    return;
+  }
+  vfdLowPressureLockout = true;
+  solenoidPressureLowAlarm = true;
+  Serial.println("Low pressure VFD lockout — pump disabled until reboot");
+  if (timerRunning) {
+    stop_timer();
+  } else {
+    update_vfd();
+    display_task_request_refresh();
+  }
 }
 
 bool wifi_connect(unsigned long timeout_ms) {
