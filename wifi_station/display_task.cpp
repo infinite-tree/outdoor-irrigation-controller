@@ -6,6 +6,7 @@
 #include <Adafruit_GFX.h>
 #include <Fonts/FreeMonoBold9pt7b.h>
 #include <GxEPD.h>
+#include <GxDEPG0213BN/GxDEPG0213BN.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
