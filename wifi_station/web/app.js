@@ -277,6 +277,13 @@
       vfdAlert.classList.add('hidden');
     }
 
+    const pressureLockoutAlert = document.getElementById('pressure-lockout-alert');
+    if (s.vfd_low_pressure_lockout) {
+      pressureLockoutAlert.classList.remove('hidden');
+    } else {
+      pressureLockoutAlert.classList.add('hidden');
+    }
+
     const z = s.zones || {};
     document.getElementById('chips').innerHTML =
       chipHtml('Z1', z.z1) +

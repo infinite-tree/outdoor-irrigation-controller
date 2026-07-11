@@ -69,6 +69,7 @@ static const char *ui_status_key(uint8_t status) {
 }
 
 static String vfd_label(int mode) {
+  if (vfdLowPressureLockout) return "Locked";
   if (vfdErrorActive) return "Error";
   if (mode == 2) return "Full";
   if (mode == 1) return "Half";
@@ -169,6 +170,7 @@ static void web_handle_get_status() {
   doc["timer_running"] = timerRunning;
   doc["solenoid_error"] = (currentZoneState == ZONE_ERROR);
   doc["vfd_error"] = vfdErrorActive;
+  doc["vfd_low_pressure_lockout"] = vfdLowPressureLockout;
 
   JsonObject zones = doc["zones"].to<JsonObject>();
   zones["z1"] = ui_status_key(ui_solenoid_zone1_status());
@@ -179,12 +181,16 @@ static void web_handle_get_status() {
   if (timerRunning) {
     format_millis(timerDuration - (millis() - timerStartTime), remaining);
     format_millis(timerDuration, duration);
-    if (vfdErrorActive) {
+    if (vfdLowPressureLockout) {
+      snprintf(nowMain, sizeof(nowMain), "Low pressure lockout");
+    } else if (vfdErrorActive) {
       snprintf(nowMain, sizeof(nowMain), "VFD fault · %s · %s left", mode_label(timerMode).c_str(), remaining);
     } else {
       snprintf(nowMain, sizeof(nowMain), "%s · %s left", mode_label(timerMode).c_str(), remaining);
     }
-    if (vfdErrorActive) {
+    if (vfdLowPressureLockout) {
+      snprintf(nowSub, sizeof(nowSub), "Pump disabled until reboot · %s total", duration);
+    } else if (vfdErrorActive) {
       snprintf(nowSub, sizeof(nowSub), "VFD drive error · %s total · Pump %s", duration, vfd_label(vfdMode).c_str());
     } else {
       snprintf(nowSub, sizeof(nowSub), "%s total · Pump %s", duration, vfd_label(vfdMode).c_str());
@@ -198,12 +204,16 @@ static void web_handle_get_status() {
     doc["duration_seconds"] = timerDuration / MILLISECONDS;
     doc["watering_started_at"] = activeRunStartEpoch;
   } else {
-    if (vfdErrorActive) {
+    if (vfdLowPressureLockout) {
+      snprintf(nowMain, sizeof(nowMain), "Low pressure lockout");
+    } else if (vfdErrorActive) {
       snprintf(nowMain, sizeof(nowMain), "VFD fault");
     } else {
       snprintf(nowMain, sizeof(nowMain), "Not watering");
     }
-    if (vfdErrorActive) {
+    if (vfdLowPressureLockout) {
+      snprintf(nowSub, sizeof(nowSub), "Pump disabled until reboot");
+    } else if (vfdErrorActive) {
       snprintf(nowSub, sizeof(nowSub), "VFD drive error · Pump %s", vfd_label(vfdMode).c_str());
     } else {
       snprintf(nowSub, sizeof(nowSub), "Pump %s", vfd_label(vfdMode).c_str());
@@ -253,6 +263,11 @@ static void web_handle_get_status() {
 }
 
 static void web_handle_start_timer() {
+  if (vfdLowPressureLockout) {
+    server.send(503, "text/plain", "Pump disabled (low pressure); reboot required");
+    return;
+  }
+
   if (server.hasArg("duration") && server.hasArg("zone")) {
     int duration = server.arg("duration").toInt();
     int zone = server.arg("zone").toInt();

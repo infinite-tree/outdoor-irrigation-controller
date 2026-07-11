@@ -22,6 +22,7 @@
 #include "Config.h"
 #include "solenoid_shared.h"
 #include "ble_pressure.h"
+#include "display_task.h"
 
 #ifndef BLE_PRESSURE_REFRESH_MS
 #define BLE_PRESSURE_REFRESH_MS 600000
@@ -207,66 +208,6 @@ void init_solenoids() {
   pinMode(ZONE2_PIN_B, OUTPUT);
 }
 
-void update_display_status() {
-  char zone1_status[10] = "OFF";
-  char zone2_status[10] = "OFF";
-  if (zoneStatus == ZONE1_ON) {
-    strcpy(zone1_status, "ON");
-  } else if (zoneStatus == ZONE2_ON) {
-    strcpy(zone2_status, "ON");
-  } else if (zoneStatus == All_ZONES_ON) {
-    strcpy(zone1_status, "ON");
-    strcpy(zone2_status, "ON");
-  }
-
-  display.setTextColor(GxEPD_BLACK);
-  display.setFont(&FreeMonoBold9pt7b);
-  display.fillScreen(GxEPD_WHITE);
-  solenoid_service_web_during_wait(10);
-  display.drawExampleBitmap(logo_200_blk, 0, 0, 72, 128, GxEPD_BLACK);
-
-  display.setCursor(90, 35);
-  display.println("Zone 1:");
-  display.setCursor(170, 35);
-  display.println(zone1_status);
-
-  display.setCursor(90, 55);
-  display.println("Zone 2:");
-  display.setCursor(170, 55);
-  display.println(zone2_status);
-
-  char pressure_text[16] = "N/A";
-  char battery_text[8] = "N/A";
-  if (ble_pressure_enabled() && ble_pressure_has_cache()) {
-    BlePressureReading reading = ble_pressure_get_cached();
-    if (ble_pressure_is_stale()) {
-      snprintf(pressure_text, sizeof(pressure_text), "~%d psi", (int)reading.psi);
-    } else {
-      snprintf(pressure_text, sizeof(pressure_text), "%d psi", (int)reading.psi);
-    }
-    if (reading.battery_valid) {
-      snprintf(battery_text, sizeof(battery_text), "%d%%", reading.battery_pct);
-    } else {
-      strcpy(battery_text, "--");
-    }
-  }
-
-  display.setCursor(90, 75);
-  display.println("Press:");
-  display.setCursor(182, 75);
-  display.println(pressure_text);
-
-  display.setCursor(90, 95);
-  display.println("Battery:");
-  display.setCursor(182, 95);
-  display.println(battery_text);
-
-  web_server_poll();
-  display.update();
-  lastDisplayUpdate = millis();
-  web_server_poll();
-}
-
 void init_display() {
   Serial.print("Initializing display ... ");
   pinMode(EDP_MISO_PIN, INPUT_PULLUP);
@@ -351,11 +292,13 @@ void setup() {
   setupInflux();
   ble_pressure_init();
   ble_pressure_start_task();
+  display_task_start();
   web_server_init();
   solenoid_watchdog_init();
 
   solenoid_watchdog_feed();
-  update_display_status();
+  display_task_request_refresh();
+  lastDisplayUpdate = millis();
   solenoid_watchdog_feed();
 }
 
@@ -416,9 +359,8 @@ void loop() {
   const unsigned long web_quiet_ms = millis() - lastWebRequestMs;
   if (pendingDisplayUpdate && web_quiet_ms >= SOLENOID_DISPLAY_WEB_QUIET_MS) {
     pendingDisplayUpdate = false;
-    solenoid_watchdog_feed();
-    update_display_status();
-    solenoid_watchdog_feed();
+    display_task_request_refresh();
+    lastDisplayUpdate = millis();
   }
 
   if (millis() - lastInfluxSend > INFLUX_DELAY &&

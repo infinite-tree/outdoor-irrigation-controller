@@ -42,6 +42,7 @@ extern byte currentZoneState;
 extern int vfdMode;
 extern bool remoteSignalOn;
 extern bool vfdErrorActive;
+extern bool vfdLowPressureLockout;
 extern float solenoidPressurePsi;
 extern int solenoidBatteryPct;
 extern bool solenoidPressureValid;
