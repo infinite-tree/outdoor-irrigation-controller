@@ -59,7 +59,13 @@ struct SolenoidPressureSample {
   float psi;
   int battery_pct;
   bool battery_valid;
+  bool zones_valid;
+  bool zone1_on;
+  bool zone2_on;
 };
+
+bool start_timer();
+bool send_zone_command(byte zone_state);
 
 bool fetch_solenoid_status(SolenoidPressureSample *sample);
 bool refresh_pressure_from_solenoid();

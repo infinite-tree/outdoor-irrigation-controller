@@ -138,6 +138,13 @@ SPIClass SDSPI(HSPI);
 #define SOLENOID_HTTP_RETRY_COUNT     3
 #define SOLENOID_HTTP_RETRY_DELAY_MS  750
 
+#ifndef SOLENOID_ZONE_VERIFY_DELAY_MS
+#define SOLENOID_ZONE_VERIFY_DELAY_MS 250
+#endif
+#ifndef STATION_ZONE_VERIFY_INTERVAL_MS
+#define STATION_ZONE_VERIFY_INTERVAL_MS 60000
+#endif
+
 /* Configuration of NTP */
 // choose the best fitting NTP server pool for your country
 #define MY_NTP_SERVER "pool.ntp.org"
@@ -190,6 +197,7 @@ WateringRecord lastWateringRemote = {0, 0};
 
 unsigned long remoteRunStartMs = 0;
 time_t remoteRunStartEpoch = 0;
+unsigned long lastZoneVerifyMs = 0;
 
 void record_watering_for_mode(byte mode, time_t startEpoch, unsigned long durationMs) {
   WateringRecord record = {startEpoch, durationMs};
@@ -311,12 +319,53 @@ bool sendDatapointsToInflux() {
   Serial.printf("Send hemp_water_canon to influx. result:");
   Serial.println(success);
 
+  char timer_mode_value[16];
+  snprintf(timer_mode_value, sizeof(timer_mode_value), "value=%d", timerRunning ? (int)timerMode : 0);
+  if (!influx.write("timer_mode", tags, timer_mode_value)) success = false;
+  Serial.printf("Send timer_mode to influx. result:");
+  Serial.println(success);
+
+  char solenoid_error_value[16];
+  snprintf(solenoid_error_value, sizeof(solenoid_error_value), "value=%d",
+           currentZoneState == ZONE_ERROR ? 1 : 0);
+  if (!influx.write("solenoid_error", tags, solenoid_error_value)) success = false;
+  Serial.printf("Send solenoid_error to influx. result:");
+  Serial.println(success);
+
   return success;
 }
 
+static bool solenoid_zones_match(byte zone_state, bool zone1_on, bool zone2_on);
+static bool fetch_solenoid_zone_state(bool *zone1_on, bool *zone2_on);
+void stop_timer();
+
+static bool post_solenoid_zone_command(const String &postData) {
+  String url = "http://" + String(SOLENOID_HTTP_HOST) + "/set_zone";
+  HTTPClient http;
+
+  http.begin(url);
+  http.setTimeout(SOLENOID_HTTP_TIMEOUT_MS);
+  http.setConnectTimeout(SOLENOID_HTTP_CONNECT_MS);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+  int httpResponseCode = http.POST(postData);
+  if (httpResponseCode == 200) {
+    http.getString();
+    http.end();
+    return true;
+  }
+
+  if (httpResponseCode < 0) {
+    Serial.printf("Zone command failed: %s (%d)\n",
+                  http.errorToString(httpResponseCode).c_str(), httpResponseCode);
+  } else {
+    Serial.printf("Zone command failed with HTTP code: %d\n", httpResponseCode);
+  }
+  http.end();
+  return false;
+}
 
 bool send_zone_command(byte zone_state) {
-  String url = "http://" + String(SOLENOID_HTTP_HOST) + "/set_zone";
   String postData = "";
 
   // Map zone states to solenoid parameters
@@ -331,37 +380,34 @@ bool send_zone_command(byte zone_state) {
   }
 
   for (uint8_t attempt = 1; attempt <= SOLENOID_HTTP_RETRY_COUNT; attempt++) {
-    HTTPClient http;
-
-    http.begin(url);
-    http.setTimeout(SOLENOID_HTTP_TIMEOUT_MS);
-    http.setConnectTimeout(SOLENOID_HTTP_CONNECT_MS);
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
     Serial.printf("Sending zone command (attempt %u/%u): %s\n",
                   attempt, SOLENOID_HTTP_RETRY_COUNT, postData.c_str());
 
-    int httpResponseCode = http.POST(postData);
+    if (!post_solenoid_zone_command(postData)) {
+      if (attempt < SOLENOID_HTTP_RETRY_COUNT) {
+        Serial.printf("Retrying solenoid command in %lu ms\n", SOLENOID_HTTP_RETRY_DELAY_MS);
+        station_service_web_during_wait(SOLENOID_HTTP_RETRY_DELAY_MS);
+      }
+      continue;
+    }
 
-    if (httpResponseCode == 200) {
-      String response = http.getString();
-      Serial.print("Zone command successful: ");
-      Serial.println(response);
-      http.end();
+    station_service_web_during_wait(SOLENOID_ZONE_VERIFY_DELAY_MS);
+
+    bool zone1_on = false;
+    bool zone2_on = false;
+    if (fetch_solenoid_zone_state(&zone1_on, &zone2_on) &&
+        solenoid_zones_match(zone_state, zone1_on, zone2_on)) {
+      Serial.printf(
+        "Solenoid zone state confirmed: zone1=%s zone2=%s\n",
+        zone1_on ? "on" : "off",
+        zone2_on ? "on" : "off"
+      );
       currentZoneState = zone_state;
       return true;
     }
 
-    if (httpResponseCode < 0) {
-      Serial.printf("Zone command failed: %s (%d)\n",
-                    http.errorToString(httpResponseCode).c_str(), httpResponseCode);
-    } else {
-      Serial.printf("Zone command failed with HTTP code: %d\n", httpResponseCode);
-    }
-    http.end();
-
+    Serial.println("Solenoid zone state mismatch after command; retrying");
     if (attempt < SOLENOID_HTTP_RETRY_COUNT) {
-      Serial.printf("Retrying solenoid command in %lu ms\n", SOLENOID_HTTP_RETRY_DELAY_MS);
       station_service_web_during_wait(SOLENOID_HTTP_RETRY_DELAY_MS);
     }
   }
@@ -497,6 +543,21 @@ void request_immediate_pressure_poll() {
 }
 
 bool parse_solenoid_pressure_json(JsonDocument &doc, SolenoidPressureSample *sample) {
+  sample->zones_valid = false;
+  sample->zone1_on = false;
+  sample->zone2_on = false;
+
+  if (!doc["zone1_on"].isNull() && !doc["zone2_on"].isNull()) {
+    sample->zones_valid = true;
+    sample->zone1_on = doc["zone1_on"].as<bool>();
+    sample->zone2_on = doc["zone2_on"].as<bool>();
+  } else if (doc["zones"].is<JsonObject>()) {
+    JsonObject zones = doc["zones"].as<JsonObject>();
+    sample->zones_valid = true;
+    sample->zone1_on = zones["z1"] == "on";
+    sample->zone2_on = zones["z2"] == "on";
+  }
+
   if (!(doc["pressure_enabled"] | false)) {
     sample->ok = false;
     sample->stale = false;
@@ -570,6 +631,76 @@ bool fetch_solenoid_status_once(SolenoidPressureSample *sample) {
   }
 
   return parse_solenoid_pressure_json(doc, sample);
+}
+
+static bool solenoid_zones_match(byte zone_state, bool zone1_on, bool zone2_on) {
+  switch (zone_state) {
+    case ZONE1_ON:
+      return zone1_on && !zone2_on;
+    case ZONE2_ON:
+      return !zone1_on && zone2_on;
+    case All_ZONES_ON:
+      return zone1_on && zone2_on;
+    case ZONES_OFF:
+      return !zone1_on && !zone2_on;
+    default:
+      return false;
+  }
+}
+
+static bool fetch_solenoid_zone_state(bool *zone1_on, bool *zone2_on) {
+  SolenoidPressureSample sample = {};
+  if (!fetch_solenoid_status_once(&sample) || !sample.zones_valid) {
+    return false;
+  }
+  *zone1_on = sample.zone1_on;
+  *zone2_on = sample.zone2_on;
+  return true;
+}
+
+static bool timer_mode_needs_solenoid(byte mode) {
+  return mode == ZONE1_ON || mode == ZONE2_ON || mode == All_ZONES_ON;
+}
+
+static void abort_timer_for_solenoid_fault(const char *reason) {
+  Serial.println(reason);
+  currentZoneState = ZONE_ERROR;
+  if (timerRunning) {
+    wateringRunActive = false;
+    stop_timer();
+  } else {
+    update_vfd();
+    display_task_request_refresh();
+  }
+}
+
+static void verify_active_timer_solenoid_state() {
+  if (!timerRunning || !timer_mode_needs_solenoid(timerMode)) {
+    return;
+  }
+
+  const unsigned long now = millis();
+  if (lastZoneVerifyMs != 0 && now - lastZoneVerifyMs < STATION_ZONE_VERIFY_INTERVAL_MS) {
+    return;
+  }
+  lastZoneVerifyMs = now;
+
+  bool zone1_on = false;
+  bool zone2_on = false;
+  if (!fetch_solenoid_zone_state(&zone1_on, &zone2_on)) {
+    Serial.println("Active timer solenoid verify: status poll failed");
+    return;
+  }
+
+  if (!solenoid_zones_match(timerMode, zone1_on, zone2_on)) {
+    Serial.printf(
+      "Active timer solenoid mismatch: mode=%u solenoid zone1=%s zone2=%s\n",
+      timerMode,
+      zone1_on ? "on" : "off",
+      zone2_on ? "on" : "off"
+    );
+    abort_timer_for_solenoid_fault("Stopping timer: solenoid state does not match active zone");
+  }
 }
 
 bool fetch_solenoid_status(SolenoidPressureSample *sample) {
@@ -850,21 +981,22 @@ void update_vfd() {
 }
 
 
-void start_timer() {
+bool start_timer() {
   if (vfdLowPressureLockout) {
     Serial.println("Start blocked: low pressure VFD lockout");
-    return;
+    return false;
   }
 
   wateringRunActive = false;
 
   if (timerMode != GREENHOUSE_ON && timerMode != CANON_ON) {
     if (!send_zone_command(timerMode)) {
+      Serial.println("Start aborted: solenoid zone command failed");
       timerRunning = false;
       activeRunStartEpoch = 0;
       update_vfd();
       display_task_request_refresh();
-      return;
+      return false;
     }
   } else {
     currentZoneState = timerMode;
@@ -874,8 +1006,10 @@ void start_timer() {
   time(&activeRunStartEpoch);
   timerRunning = true;
   wateringRunActive = true;
+  lastZoneVerifyMs = 0;
   update_vfd();
   display_task_request_refresh();
+  return true;
 }
 
 void stop_timer() {
@@ -1150,6 +1284,7 @@ void loop() {
   }
 
   update_pressure_monitoring();
+  verify_active_timer_solenoid_state();
 
   // Handle web events outside of the webserver response path.
   // Always clear deferred flags so a stop request while idle (or a start while
@@ -1157,7 +1292,9 @@ void loop() {
   if (webStartTimer) {
     webStartTimer = false;
     if (!timerRunning) {
-      start_timer();
+      if (!start_timer()) {
+        Serial.println("Deferred web start failed");
+      }
     }
   }
   if (webStopTimer) {

@@ -559,13 +559,16 @@ void schedule_tick(bool timerRunning) {
       sched.durationMin
     );
 
-    sched.lastFiredSlot = slotStart;
-    schedule_persist();
-
     webStopTimer = false;
     timerDuration = (unsigned long)sched.durationMin * 60UL * MILLISECONDS;
     timerMode = sched.zone;
-    webStartTimer = true;
+    if (!start_timer()) {
+      Serial.printf("Schedule %u start failed; slot not marked fired\n", sched.id);
+      return;
+    }
+
+    sched.lastFiredSlot = slotStart;
+    schedule_persist();
     return;
   }
 }
