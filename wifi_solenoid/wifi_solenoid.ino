@@ -70,7 +70,15 @@
 #define ZONE2_PIN_A     42
 #define ZONE2_PIN_B     46
 
-#define SOLENOID_PULSE_LENGTH   100
+#ifndef SOLENOID_PULSE_LENGTH_MS
+#define SOLENOID_PULSE_LENGTH_MS    150
+#endif
+#ifndef SOLENOID_PULSE_REPEATS
+#define SOLENOID_PULSE_REPEATS      3
+#endif
+#ifndef SOLENOID_PULSE_GAP_MS
+#define SOLENOID_PULSE_GAP_MS       75
+#endif
 
 #define DISPLAY_UPDATE_MILLIS 60000
 #define WIFI_CONNECTION_MILLIS  3000
@@ -109,6 +117,24 @@ static void solenoid_service_web_during_wait(unsigned long delay_ms) {
     web_server_poll();
     solenoid_watchdog_feed();
     delay(10);
+  }
+}
+
+static void solenoid_drive_pulse(uint8_t pin_a, uint8_t pin_b, uint8_t level_a, uint8_t level_b) {
+  digitalWrite(pin_a, level_a);
+  digitalWrite(pin_b, level_b);
+  solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH_MS);
+  digitalWrite(pin_a, LOW);
+  digitalWrite(pin_b, LOW);
+}
+
+static void solenoid_pulse_actuator(uint8_t pin_a, uint8_t pin_b, uint8_t level_a, uint8_t level_b) {
+  const uint8_t repeats = SOLENOID_PULSE_REPEATS < 1 ? 1 : SOLENOID_PULSE_REPEATS;
+  for (uint8_t i = 0; i < repeats; i++) {
+    solenoid_drive_pulse(pin_a, pin_b, level_a, level_b);
+    if (i + 1 < repeats && SOLENOID_PULSE_GAP_MS > 0) {
+      solenoid_service_web_during_wait(SOLENOID_PULSE_GAP_MS);
+    }
   }
 }
 
@@ -157,21 +183,13 @@ bool sendPressureToInflux() {
 
 void open_solenoid(uint8_t zone) {
   if (zone == ZONE1) {
-    digitalWrite(ZONE1_PIN_A, LOW);
-    digitalWrite(ZONE1_PIN_B, HIGH);
-    solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH);
-    digitalWrite(ZONE1_PIN_A, LOW);
-    digitalWrite(ZONE1_PIN_B, LOW);
+    solenoid_pulse_actuator(ZONE1_PIN_A, ZONE1_PIN_B, LOW, HIGH);
     zone1On = true;
     if (zone2On) zoneStatus = All_ZONES_ON;
     else zoneStatus = ZONE1_ON;
 
   } else if (zone == ZONE2) {
-    digitalWrite(ZONE2_PIN_A, LOW);
-    digitalWrite(ZONE2_PIN_B, HIGH);
-    solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH);
-    digitalWrite(ZONE2_PIN_A, LOW);
-    digitalWrite(ZONE2_PIN_B, LOW);
+    solenoid_pulse_actuator(ZONE2_PIN_A, ZONE2_PIN_B, LOW, HIGH);
     zone2On = true;
     if (zone1On) zoneStatus = All_ZONES_ON;
     else zoneStatus = ZONE2_ON;
@@ -180,21 +198,13 @@ void open_solenoid(uint8_t zone) {
 
 void close_solenoid(uint8_t zone) {
   if (zone == ZONE1) {
-    digitalWrite(ZONE1_PIN_A, HIGH);
-    digitalWrite(ZONE1_PIN_B, LOW);
-    solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH);
-    digitalWrite(ZONE1_PIN_A, LOW);
-    digitalWrite(ZONE1_PIN_B, LOW);
+    solenoid_pulse_actuator(ZONE1_PIN_A, ZONE1_PIN_B, HIGH, LOW);
     zone1On = false;
     if (zone2On) zoneStatus = ZONE2_ON;
     else zoneStatus = ZONES_OFF;
 
   } else if (zone == ZONE2) {
-    digitalWrite(ZONE2_PIN_A, HIGH);
-    digitalWrite(ZONE2_PIN_B, LOW);
-    solenoid_service_web_during_wait(SOLENOID_PULSE_LENGTH);
-    digitalWrite(ZONE2_PIN_A, LOW);
-    digitalWrite(ZONE2_PIN_B, LOW);
+    solenoid_pulse_actuator(ZONE2_PIN_A, ZONE2_PIN_B, HIGH, LOW);
     zone2On = false;
     if (zone1On) zoneStatus = ZONE1_ON;
     else zoneStatus = ZONES_OFF;

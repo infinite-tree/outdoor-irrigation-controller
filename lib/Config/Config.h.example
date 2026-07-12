@@ -85,6 +85,12 @@
 #define SOLENOID_WATCHDOG_TIMEOUT_MS      120000   // 2 minutes
 #define SOLENOID_WIFI_RESTART_MS          3600000  // restart after 1 h WiFi down (0 = disable)
 
+// Latching solenoid drive (wifi_solenoid only). Each actuation sends REPEATS pulses of
+// LENGTH_MS with GAP_MS between them (web server is polled during every wait).
+#define SOLENOID_PULSE_LENGTH_MS          150
+#define SOLENOID_PULSE_REPEATS            3
+#define SOLENOID_PULSE_GAP_MS             75
+
 // Pressure monitoring (wifi_station only). Polls solenoid /status on an interval.
 #define STATION_PRESSURE_POLL_INTERVAL_MS 300000   // 5 minutes while pump/VFD off
 #define STATION_PRESSURE_POLL_ACTIVE_MS   60000    // 1 minute while pump/VFD on (incl. remote)
