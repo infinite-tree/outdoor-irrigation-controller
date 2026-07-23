@@ -34,6 +34,9 @@ Repository: [github.com/infinite-tree/outdoor-irrigation-controller](https://git
 | `STATION_WATCHDOG_TIMEOUT_MS` | wifi_station | Main-loop watchdog; auto-restart if the loop stalls (default 2 min) |
 | `STATION_WIFI_RESTART_MS` | wifi_station | Restart after prolonged WiFi loss (default 1 h; `0` disables) |
 | `SOLENOID_WATCHDOG_TIMEOUT_MS` | wifi_solenoid | Main-loop watchdog; auto-restart if the loop stalls (default 2 min) |
+| `SOLENOID_PULSE_LENGTH_MS` | wifi_solenoid | Duration of each latching solenoid drive pulse (default 150 ms) |
+| `SOLENOID_PULSE_REPEATS` | wifi_solenoid | Number of consecutive pulses per open/close (default 3) |
+| `SOLENOID_PULSE_GAP_MS` | wifi_solenoid | Idle gap between repeat pulses; web server stays responsive (default 75 ms) |
 | `SOLENOID_WIFI_RESTART_MS` | wifi_solenoid | Restart after prolonged WiFi loss (default 1 h; `0` disables) |
 
 ### BLE pressure sensor (wifi_solenoid + wifi_station)
