@@ -17,5 +17,6 @@ void solenoid_mark_web_activity();
 
 void open_solenoid(uint8_t zone);
 void close_solenoid(uint8_t zone);
+bool sendZoneStateToInflux();
 void web_server_init();
 void web_server_poll();

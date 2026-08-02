@@ -111,6 +111,11 @@ static void web_handle_set_zone() {
 
   server.send(200, "text/plain", "Zones set");
   display_task_request_refresh();
+
+  // After the caller has the HTTP response, push latch state for Grafana.
+  if (!sendZoneStateToInflux()) {
+    Serial.println("Failed to send zone state to InfluxDB after set_zone");
+  }
 }
 
 static void web_handle_health() {
