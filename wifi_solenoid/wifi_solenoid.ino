@@ -152,11 +152,10 @@ void setupInflux() {
   influx.addCertificate(ROOT_CERT);
 }
 
-bool sendDatapointsToInflux() {
-  bool success = true;
-
+bool sendZoneStateToInflux() {
   // Actual commanded latch state on this board (compare with station hemp_zone*).
   const char *zone_tags = "location=main-pump,sensor=solenoid-controller";
+  bool success = true;
 
   char zone1_value[16];
   snprintf(zone1_value, sizeof(zone1_value), "value=%d", zone1On ? 1 : 0);
@@ -171,6 +170,15 @@ bool sendDatapointsToInflux() {
     success = false;
   }
   Serial.printf("Send solenoid_zone2 to influx. result: %d\n", success);
+
+  if (!success) {
+    Serial.println(influx.getResponse());
+  }
+  return success;
+}
+
+bool sendDatapointsToInflux() {
+  bool success = sendZoneStateToInflux();
 
   if (!ble_pressure_enabled() || !ble_pressure_is_fresh()) {
     return success;
