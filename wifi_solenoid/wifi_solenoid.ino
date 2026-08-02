@@ -70,11 +70,12 @@
 #define ZONE2_PIN_A     42
 #define ZONE2_PIN_B     46
 
+// Hunder DC latching solenoids specify 250ms pulses
 #ifndef SOLENOID_PULSE_LENGTH_MS
-#define SOLENOID_PULSE_LENGTH_MS    150
+#define SOLENOID_PULSE_LENGTH_MS    250
 #endif
 #ifndef SOLENOID_PULSE_REPEATS
-#define SOLENOID_PULSE_REPEATS      3
+#define SOLENOID_PULSE_REPEATS      1
 #endif
 #ifndef SOLENOID_PULSE_GAP_MS
 #define SOLENOID_PULSE_GAP_MS       75
