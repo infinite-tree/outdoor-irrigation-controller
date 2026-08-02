@@ -152,19 +152,36 @@ void setupInflux() {
   influx.addCertificate(ROOT_CERT);
 }
 
-bool sendPressureToInflux() {
+bool sendDatapointsToInflux() {
+  bool success = true;
+
+  // Actual commanded latch state on this board (compare with station hemp_zone*).
+  const char *zone_tags = "location=main-pump,sensor=solenoid-controller";
+
+  char zone1_value[16];
+  snprintf(zone1_value, sizeof(zone1_value), "value=%d", zone1On ? 1 : 0);
+  if (!influx.write("solenoid_zone1", zone_tags, zone1_value)) {
+    success = false;
+  }
+  Serial.printf("Send solenoid_zone1 to influx. result: %d\n", success);
+
+  char zone2_value[16];
+  snprintf(zone2_value, sizeof(zone2_value), "value=%d", zone2On ? 1 : 0);
+  if (!influx.write("solenoid_zone2", zone_tags, zone2_value)) {
+    success = false;
+  }
+  Serial.printf("Send solenoid_zone2 to influx. result: %d\n", success);
+
   if (!ble_pressure_enabled() || !ble_pressure_is_fresh()) {
-    return true;
+    return success;
   }
 
   BlePressureReading reading = ble_pressure_get_cached();
-
-  const char *tags = "location=main-pump,sensor=solenoid-pressure";
-  bool success = true;
+  const char *pressure_tags = "location=main-pump,sensor=solenoid-pressure";
 
   char pressure_value[16];
   snprintf(pressure_value, sizeof(pressure_value), "value=%d", (int)reading.psi);
-  if (!influx.write("pressure_psi", tags, pressure_value)) {
+  if (!influx.write("pressure_psi", pressure_tags, pressure_value)) {
     success = false;
   }
   Serial.printf("Send pressure_psi to influx. result: %d\n", success);
@@ -172,7 +189,7 @@ bool sendPressureToInflux() {
   if (reading.battery_valid) {
     char battery_value[16];
     snprintf(battery_value, sizeof(battery_value), "value=%d", reading.battery_pct);
-    if (!influx.write("pressure_battery_pct", tags, battery_value)) {
+    if (!influx.write("pressure_battery_pct", pressure_tags, battery_value)) {
       success = false;
     }
     Serial.printf("Send pressure_battery_pct to influx. result: %d\n", success);
@@ -376,9 +393,9 @@ void loop() {
   if (millis() - lastInfluxSend > INFLUX_DELAY &&
       web_quiet_ms >= SOLENOID_INFLUX_WEB_QUIET_MS) {
     lastInfluxSend = millis();
-    Serial.println("Sending pressure data to influx...");
-    if (!sendPressureToInflux()) {
-      Serial.println("Failed to send pressure data to InfluxDB");
+    Serial.println("Sending solenoid data to influx...");
+    if (!sendDatapointsToInflux()) {
+      Serial.println("Failed to send solenoid data to InfluxDB");
       Serial.println(influx.getResponse());
     }
   }
