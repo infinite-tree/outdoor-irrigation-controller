@@ -103,7 +103,7 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .next-run{margin-top:6px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.14);font-size:.8rem;line-height:1.3}
 .next-run b{display:block;font-size:.65rem;font-weight:600;opacity:.85;margin-bottom:2px;text-transform:uppercase;letter-spacing:.04em}
 .alert{background:#f8d7da;color:#721c24;border-radius:8px;padding:8px 10px;font-size:.82rem;font-weight:600;margin-top:6px}
-.chips{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:8px}
+.chips{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin-top:8px}
 .chip{border-radius:8px;padding:6px 2px;text-align:center;font-size:.68rem;font-weight:700;line-height:1.15}
 .chip b{display:block;font-size:.62rem;font-weight:600;opacity:.85;margin-bottom:2px}
 .chip-off{background:rgba(0,0,0,.15);color:rgba(255,255,255,.75)}
@@ -453,11 +453,13 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     }
 
     const z = s.zones || {};
+    const remoteStatus = z.remote || (s.remote_signal_on ? 'on' : 'off');
     document.getElementById('chips').innerHTML =
       chipHtml('Z1', z.z1) +
       chipHtml('Z2', z.z2) +
       chipHtml('GH', z.gh) +
-      chipHtml('WC', z.wc);
+      chipHtml('WC', z.wc) +
+      chipHtml('RM', remoteStatus);
 
     renderNextRun(s.next_scheduled);
     renderLastTable(s.last_watering);

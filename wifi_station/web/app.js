@@ -285,11 +285,13 @@
     }
 
     const z = s.zones || {};
+    const remoteStatus = z.remote || (s.remote_signal_on ? 'on' : 'off');
     document.getElementById('chips').innerHTML =
       chipHtml('Z1', z.z1) +
       chipHtml('Z2', z.z2) +
       chipHtml('GH', z.gh) +
-      chipHtml('WC', z.wc);
+      chipHtml('WC', z.wc) +
+      chipHtml('RM', remoteStatus);
 
     renderNextRun(s.next_scheduled);
     renderLastTable(s.last_watering);

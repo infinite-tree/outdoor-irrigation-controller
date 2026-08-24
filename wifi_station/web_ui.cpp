@@ -177,6 +177,7 @@ static void web_handle_get_status() {
   zones["z2"] = ui_status_key(ui_solenoid_zone2_status());
   zones["gh"] = ui_status_key(ui_local_mode_status(GREENHOUSE_ON));
   zones["wc"] = ui_status_key(ui_local_mode_status(CANON_ON));
+  zones["remote"] = ui_status_key(remoteSignalOn ? UI_STATUS_ON : UI_STATUS_OFF);
 
   if (timerRunning) {
     format_millis(timerDuration - (millis() - timerStartTime), remaining);
@@ -184,7 +185,13 @@ static void web_handle_get_status() {
     if (vfdLowPressureLockout) {
       snprintf(nowMain, sizeof(nowMain), "Low pressure lockout");
     } else if (vfdErrorActive) {
-      snprintf(nowMain, sizeof(nowMain), "VFD fault · %s · %s left", mode_label(timerMode).c_str(), remaining);
+      if (remoteSignalOn) {
+        snprintf(nowMain, sizeof(nowMain), "VFD fault · %s + Remote · %s left", mode_label(timerMode).c_str(), remaining);
+      } else {
+        snprintf(nowMain, sizeof(nowMain), "VFD fault · %s · %s left", mode_label(timerMode).c_str(), remaining);
+      }
+    } else if (remoteSignalOn) {
+      snprintf(nowMain, sizeof(nowMain), "%s + Remote · %s left", mode_label(timerMode).c_str(), remaining);
     } else {
       snprintf(nowMain, sizeof(nowMain), "%s · %s left", mode_label(timerMode).c_str(), remaining);
     }
@@ -208,6 +215,8 @@ static void web_handle_get_status() {
       snprintf(nowMain, sizeof(nowMain), "Low pressure lockout");
     } else if (vfdErrorActive) {
       snprintf(nowMain, sizeof(nowMain), "VFD fault");
+    } else if (remoteSignalOn) {
+      snprintf(nowMain, sizeof(nowMain), "Remote running");
     } else {
       snprintf(nowMain, sizeof(nowMain), "Not watering");
     }
