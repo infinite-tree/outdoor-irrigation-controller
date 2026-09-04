@@ -30,7 +30,8 @@
         <div class="next-run hidden" id="next-run"></div>
         <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
         <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
-        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled until reboot</div>
+        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled. Turn off the pressure sensor below to run the pump.</div>
+        <div class="alert alert-warn hidden" id="pressure-bypass-alert">Remote pressure sensor is off</div>
         <div class="chips" id="chips"></div>
       </section>
 
@@ -49,6 +50,16 @@
       </section>
 
       <section class="panel ctrl" id="controls"></section>
+
+      <section class="panel" id="pressure-settings">
+        <div class="lbl panel-lbl">Remote pressure sensor</div>
+        <p class="press-set-note">When off, the station ignores solenoid PSI: no polling, alarms, or pump lockout.</p>
+        <div class="press-set-row">
+          <span>Use sensor</span>
+          <button type="button" class="btn-done" id="pressure-sensor-btn">On</button>
+        </div>
+        <p class="press-set-msg hidden" id="pressure-set-msg"></p>
+      </section>
     </div>
 
     <div class="tab-panel" id="panel-schedules">

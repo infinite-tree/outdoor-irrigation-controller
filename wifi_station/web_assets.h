@@ -35,7 +35,8 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
         <div class="next-run hidden" id="next-run"></div>
         <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
         <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
-        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled until reboot</div>
+        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled. Turn off the pressure sensor below to run the pump.</div>
+        <div class="alert alert-warn hidden" id="pressure-bypass-alert">Remote pressure sensor is off</div>
         <div class="chips" id="chips"></div>
       </section>
 
@@ -54,6 +55,16 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
       </section>
 
       <section class="panel ctrl" id="controls"></section>
+
+      <section class="panel" id="pressure-settings">
+        <div class="lbl panel-lbl">Remote pressure sensor</div>
+        <p class="press-set-note">When off, the station ignores solenoid PSI: no polling, alarms, or pump lockout.</p>
+        <div class="press-set-row">
+          <span>Use sensor</span>
+          <button type="button" class="btn-done" id="pressure-sensor-btn">On</button>
+        </div>
+        <p class="press-set-msg hidden" id="pressure-set-msg"></p>
+      </section>
     </div>
 
     <div class="tab-panel" id="panel-schedules">
@@ -103,6 +114,15 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .next-run{margin-top:6px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.14);font-size:.8rem;line-height:1.3}
 .next-run b{display:block;font-size:.65rem;font-weight:600;opacity:.85;margin-bottom:2px;text-transform:uppercase;letter-spacing:.04em}
 .alert{background:#f8d7da;color:#721c24;border-radius:8px;padding:8px 10px;font-size:.82rem;font-weight:600;margin-top:6px}
+.alert-warn{background:#fff3cd;color:#856404}
+.press-set-note{margin:0 0 8px;font-size:.78rem;color:#555}
+.press-set-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0}
+.press-set-row>span{font-size:.85rem;font-weight:600;color:#444}
+.press-set-row .btn-done{width:auto;padding:0 12px}
+.press-set-row .btn-done.sensor-off{background:#fff3cd;border-color:#e0c36a;color:#856404}
+.press-set-msg{margin:4px 0 0;font-size:.78rem;font-weight:600}
+.press-set-msg.ok{color:#155724}
+.press-set-msg.err{color:#b02a37}
 .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:8px}
 .chip{border-radius:8px;padding:6px 2px;text-align:center;font-size:.68rem;font-weight:700;line-height:1.15}
 .chip b{display:block;font-size:.62rem;font-weight:600;opacity:.85;margin-bottom:2px}
@@ -411,6 +431,11 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       return;
     }
     wrap.classList.remove('pressure-alarm', 'pressure-stale');
+    if (s.pressure_sensor_enabled === false) {
+      val.textContent = 'Off';
+      wrap.classList.add('pressure-stale');
+      return;
+    }
     if ((s.pressure_valid || s.pressure_stale) && s.pressure_psi != null) {
       const prefix = s.pressure_stale ? '~' : '';
       val.textContent = prefix + s.pressure_psi + ' psi';
@@ -450,6 +475,22 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       pressureLockoutAlert.classList.remove('hidden');
     } else {
       pressureLockoutAlert.classList.add('hidden');
+    }
+
+    const pressureBypassAlert = document.getElementById('pressure-bypass-alert');
+    if (pressureBypassAlert) {
+      if (s.pressure_sensor_enabled === false) {
+        pressureBypassAlert.classList.remove('hidden');
+      } else {
+        pressureBypassAlert.classList.add('hidden');
+      }
+    }
+
+    const sensorBtn = document.getElementById('pressure-sensor-btn');
+    if (sensorBtn) {
+      const on = s.pressure_sensor_enabled !== false;
+      sensorBtn.textContent = on ? 'On' : 'Off';
+      sensorBtn.classList.toggle('sensor-off', !on);
     }
 
     const z = s.zones || {};
@@ -1013,6 +1054,56 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       openEdit(editBtn.getAttribute('data-key'));
     }
   });
+
+  function setPressureMsg(text, isError) {
+    const el = document.getElementById('pressure-set-msg');
+    if (!el) return;
+    if (!text) {
+      el.classList.add('hidden');
+      el.textContent = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    el.textContent = text;
+    el.classList.toggle('ok', !isError);
+    el.classList.toggle('err', !!isError);
+  }
+
+  function postForm(path, body) {
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        if (!r.ok) {
+          throw new Error(text || 'Request failed');
+        }
+        return text;
+      });
+    });
+  }
+
+  const sensorBtn = document.getElementById('pressure-sensor-btn');
+  if (sensorBtn) {
+    sensorBtn.addEventListener('click', function () {
+      const currentlyOn = sensorBtn.textContent === 'On';
+      const nextOn = !currentlyOn;
+      sensorBtn.disabled = true;
+      setPressureMsg(nextOn ? 'Enabling pressure sensor…' : 'Disabling pressure sensor…', false);
+      postForm('/pressure_sensor', 'enabled=' + (nextOn ? '1' : '0'))
+        .then(function () {
+          setPressureMsg(nextOn ? 'Pressure sensor on' : 'Pressure sensor off', false);
+          return refresh();
+        })
+        .catch(function (err) {
+          setPressureMsg(err.message || 'Update failed', true);
+        })
+        .finally(function () {
+          sensorBtn.disabled = false;
+        });
+    });
+  }
 
   refresh();
   setInterval(refresh, POLL_MS);

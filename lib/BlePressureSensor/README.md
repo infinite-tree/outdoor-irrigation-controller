@@ -9,7 +9,7 @@ Features:
 - Connect to a sensor by MAC address and read a custom GATT pressure characteristic
 - Per-read retries and forced disconnect between attempts
 - `resetStack()` to deinit/reinit NimBLE after repeated failures
-- CirrusSense TDWLB-LC: signed int16 **big-endian**, `psi = raw / 10` (0xFFF4 → −1.2 psi vacuum)
+- CirrusSense TDWLB-LC: signed int16 **big-endian**, `psi = raw / 10` (0xFFF4 → −1.2 psi vacuum). Negative values are not clamped; a drifted zero is reported as-is.
 - Interpret pressure as a 16-bit little-endian raw value with configurable linear scaling
 - Read battery level from the standard Bluetooth SIG Battery Service (`0x180F`) and Battery Level characteristic (`0x2A19`)
 
@@ -72,6 +72,8 @@ void loop() {
 Raw values below `raw_floor` report `0` psi. Between the two reference points:
 
 `psi = psi_ref_low + (raw - raw_ref_low) * (psi_ref_high - psi_ref_low) / (raw_ref_high - raw_ref_low)`
+
+CirrusSense tenths mode (`scale_tenths`) is linear through vacuum: `psi = (int16)raw / raw_tenths_divisor`. The high clamp (`psi_max`) still applies; the low end is not clamped so zero-drift below 0 psi remains visible.
 
 You can call `BlePressureSensor::rawToPsi()` directly for unit tests without BLE hardware.
 

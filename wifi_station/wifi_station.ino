@@ -12,6 +12,7 @@
 #include <WebServer.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <InfluxArduino.hpp>
 #include <RootCert.h>
 
@@ -154,6 +155,7 @@ GxEPD_Class display(io, EDP_RSET_PIN, EDP_BUSY_PIN);
 bool remoteSignalOn = false;
 bool vfdErrorActive = false;
 bool vfdLowPressureLockout = false;
+bool pressureSensorEnabled = true;
 byte currentZoneState = ZONES_OFF;
 
 float solenoidPressurePsi = 0.0f;
@@ -493,6 +495,9 @@ unsigned long pressure_poll_interval_ms() {
 }
 
 void request_immediate_pressure_poll() {
+  if (!pressureSensorEnabled) {
+    return;
+  }
   lastPressurePoll = 0;
 }
 
@@ -635,6 +640,10 @@ static bool apply_solenoid_pressure_sample(const SolenoidPressureSample &sample)
 }
 
 bool refresh_pressure_from_solenoid() {
+  if (!pressureSensorEnabled) {
+    return false;
+  }
+
   const unsigned long now = millis();
   lastPressureFetchAttempt = now;
 
@@ -672,6 +681,10 @@ static volatile bool pressure_status_refresh_pending = false;
 static bool pressure_status_refresh_in_progress = false;
 
 void request_pressure_for_status_refresh() {
+  if (!pressureSensorEnabled) {
+    return;
+  }
+
   const unsigned long now = millis();
   const bool cache_empty = pressure_cache_is_empty();
   const bool cache_zero =
@@ -688,7 +701,8 @@ void request_pressure_for_status_refresh() {
 }
 
 void process_pending_pressure_status_refresh() {
-  if (!pressure_status_refresh_pending || pressure_status_refresh_in_progress) {
+  if (!pressureSensorEnabled || !pressure_status_refresh_pending ||
+      pressure_status_refresh_in_progress) {
     return;
   }
 
@@ -700,6 +714,55 @@ void process_pending_pressure_status_refresh() {
 }
 
 static void trigger_low_pressure_vfd_lockout();
+static void clear_low_pressure_vfd_lockout();
+
+static void clear_station_pressure_state() {
+  pressure_status_refresh_pending = false;
+  lastPressurePoll = 0;
+  lastPressureFetchAttempt = 0;
+  solenoidPressureValid = false;
+  solenoidPressureStale = false;
+  solenoidBatteryValid = false;
+  solenoidPressureLowAlarm = false;
+  solenoidPressureHighAlarm = false;
+  solenoidBatteryLowAlarm = false;
+  batteryLowAlertSent = false;
+  reset_pressure_alarm_state();
+  clear_low_pressure_vfd_lockout();
+}
+
+void pressure_sensor_init() {
+  Preferences prefs;
+  if (!prefs.begin("presscfg", true)) {
+    pressureSensorEnabled = true;
+    return;
+  }
+  pressureSensorEnabled = prefs.getBool("sensor", prefs.getBool("safety", true));
+  prefs.end();
+  Serial.print("Remote pressure sensor ");
+  Serial.println(pressureSensorEnabled ? "enabled" : "disabled");
+  if (!pressureSensorEnabled) {
+    clear_station_pressure_state();
+  }
+}
+
+bool set_pressure_sensor_enabled(bool enabled) {
+  pressureSensorEnabled = enabled;
+  Preferences prefs;
+  if (prefs.begin("presscfg", false)) {
+    prefs.putBool("sensor", enabled);
+    prefs.end();
+  }
+  Serial.print("Remote pressure sensor ");
+  Serial.println(enabled ? "enabled" : "disabled");
+  if (!enabled) {
+    clear_station_pressure_state();
+  } else {
+    request_immediate_pressure_poll();
+  }
+  display_task_request_refresh();
+  return true;
+}
 
 static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
                                      unsigned long now) {
@@ -767,6 +830,10 @@ static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
 }
 
 void update_pressure_monitoring() {
+  if (!pressureSensorEnabled) {
+    return;
+  }
+
   const unsigned long now = millis();
   if (!pressure_poll_due(now)) {
     return;
@@ -907,13 +974,30 @@ void stop_timer() {
   display_task_request_refresh();
 }
 
+static void clear_low_pressure_vfd_lockout() {
+  if (!vfdLowPressureLockout) {
+    reset_pressure_alarm_state();
+    return;
+  }
+  vfdLowPressureLockout = false;
+  solenoidPressureLowAlarm = false;
+  reset_pressure_alarm_state();
+  Serial.println("Low pressure VFD lockout cleared");
+  update_vfd();
+  display_task_request_refresh();
+}
+
 static void trigger_low_pressure_vfd_lockout() {
   if (vfdLowPressureLockout) {
     return;
   }
+  if (!pressureSensorEnabled) {
+    Serial.println("Low pressure alarm ignored; remote pressure sensor disabled");
+    return;
+  }
   vfdLowPressureLockout = true;
   solenoidPressureLowAlarm = true;
-  Serial.println("Low pressure VFD lockout — pump disabled until reboot");
+  Serial.println("Low pressure VFD lockout — disable the pressure sensor to run the pump");
   if (timerRunning) {
     stop_timer();
   } else {
@@ -1073,6 +1157,7 @@ void setup() {
   display_task_start();
   web_server_init();
   schedule_init();
+  pressure_sensor_init();
   setupInflux();
   station_watchdog_init();
   display_task_request_refresh();

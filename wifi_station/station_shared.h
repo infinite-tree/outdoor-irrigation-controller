@@ -43,6 +43,7 @@ extern int vfdMode;
 extern bool remoteSignalOn;
 extern bool vfdErrorActive;
 extern bool vfdLowPressureLockout;
+extern bool pressureSensorEnabled;
 extern float solenoidPressurePsi;
 extern int solenoidBatteryPct;
 extern bool solenoidPressureValid;
@@ -68,6 +69,8 @@ void process_pending_pressure_status_refresh();
 void update_pressure_monitoring();
 void request_immediate_pressure_poll();
 bool pump_is_active();
+void pressure_sensor_init();
+bool set_pressure_sensor_enabled(bool enabled);
 
 void format_millis(unsigned long milliseconds, char *buffer);
 String format_time_ago(unsigned long secondsAgo);

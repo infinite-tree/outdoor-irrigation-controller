@@ -243,6 +243,11 @@
       return;
     }
     wrap.classList.remove('pressure-alarm', 'pressure-stale');
+    if (s.pressure_sensor_enabled === false) {
+      val.textContent = 'Off';
+      wrap.classList.add('pressure-stale');
+      return;
+    }
     if ((s.pressure_valid || s.pressure_stale) && s.pressure_psi != null) {
       const prefix = s.pressure_stale ? '~' : '';
       val.textContent = prefix + s.pressure_psi + ' psi';
@@ -282,6 +287,22 @@
       pressureLockoutAlert.classList.remove('hidden');
     } else {
       pressureLockoutAlert.classList.add('hidden');
+    }
+
+    const pressureBypassAlert = document.getElementById('pressure-bypass-alert');
+    if (pressureBypassAlert) {
+      if (s.pressure_sensor_enabled === false) {
+        pressureBypassAlert.classList.remove('hidden');
+      } else {
+        pressureBypassAlert.classList.add('hidden');
+      }
+    }
+
+    const sensorBtn = document.getElementById('pressure-sensor-btn');
+    if (sensorBtn) {
+      const on = s.pressure_sensor_enabled !== false;
+      sensorBtn.textContent = on ? 'On' : 'Off';
+      sensorBtn.classList.toggle('sensor-off', !on);
     }
 
     const z = s.zones || {};
@@ -845,6 +866,56 @@
       openEdit(editBtn.getAttribute('data-key'));
     }
   });
+
+  function setPressureMsg(text, isError) {
+    const el = document.getElementById('pressure-set-msg');
+    if (!el) return;
+    if (!text) {
+      el.classList.add('hidden');
+      el.textContent = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    el.textContent = text;
+    el.classList.toggle('ok', !isError);
+    el.classList.toggle('err', !!isError);
+  }
+
+  function postForm(path, body) {
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        if (!r.ok) {
+          throw new Error(text || 'Request failed');
+        }
+        return text;
+      });
+    });
+  }
+
+  const sensorBtn = document.getElementById('pressure-sensor-btn');
+  if (sensorBtn) {
+    sensorBtn.addEventListener('click', function () {
+      const currentlyOn = sensorBtn.textContent === 'On';
+      const nextOn = !currentlyOn;
+      sensorBtn.disabled = true;
+      setPressureMsg(nextOn ? 'Enabling pressure sensor…' : 'Disabling pressure sensor…', false);
+      postForm('/pressure_sensor', 'enabled=' + (nextOn ? '1' : '0'))
+        .then(function () {
+          setPressureMsg(nextOn ? 'Pressure sensor on' : 'Pressure sensor off', false);
+          return refresh();
+        })
+        .catch(function (err) {
+          setPressureMsg(err.message || 'Update failed', true);
+        })
+        .finally(function () {
+          sensorBtn.disabled = false;
+        });
+    });
+  }
 
   refresh();
   setInterval(refresh, POLL_MS);

@@ -189,7 +189,7 @@ static void web_handle_get_status() {
       snprintf(nowMain, sizeof(nowMain), "%s · %s left", mode_label(timerMode).c_str(), remaining);
     }
     if (vfdLowPressureLockout) {
-      snprintf(nowSub, sizeof(nowSub), "Pump disabled until reboot · %s total", duration);
+      snprintf(nowSub, sizeof(nowSub), "Pump disabled — turn off the pressure sensor · %s total", duration);
     } else if (vfdErrorActive) {
       snprintf(nowSub, sizeof(nowSub), "VFD drive error · %s total · Pump %s", duration, vfd_label(vfdMode).c_str());
     } else {
@@ -212,7 +212,7 @@ static void web_handle_get_status() {
       snprintf(nowMain, sizeof(nowMain), "Not watering");
     }
     if (vfdLowPressureLockout) {
-      snprintf(nowSub, sizeof(nowSub), "Pump disabled until reboot");
+      snprintf(nowSub, sizeof(nowSub), "Pump disabled — turn off the pressure sensor");
     } else if (vfdErrorActive) {
       snprintf(nowSub, sizeof(nowSub), "VFD drive error · Pump %s", vfd_label(vfdMode).c_str());
     } else {
@@ -229,18 +229,19 @@ static void web_handle_get_status() {
   doc["solenoid_state"] = currentZoneState;
   doc["remote_signal_on"] = remoteSignalOn;
   doc["vfd"] = vfdMode;
-  doc["pressure_valid"] = solenoidPressureValid;
-  doc["pressure_stale"] = solenoidPressureStale;
-  if (solenoidPressureValid || solenoidPressureStale) {
+  doc["pressure_sensor_enabled"] = pressureSensorEnabled;
+  doc["pressure_valid"] = pressureSensorEnabled && solenoidPressureValid;
+  doc["pressure_stale"] = pressureSensorEnabled && solenoidPressureStale;
+  if (pressureSensorEnabled && (solenoidPressureValid || solenoidPressureStale)) {
     doc["pressure_psi"] = (int)solenoidPressurePsi;
   }
-  if (solenoidBatteryValid) {
+  if (pressureSensorEnabled && solenoidBatteryValid) {
     doc["pressure_battery_pct"] = solenoidBatteryPct;
   }
-  doc["pressure_low_alarm"] = solenoidPressureLowAlarm;
-  doc["pressure_high_alarm"] = solenoidPressureHighAlarm;
-  doc["pressure_battery_low_alarm"] = solenoidBatteryLowAlarm;
-  if (lastPressurePoll != 0) {
+  doc["pressure_low_alarm"] = pressureSensorEnabled && solenoidPressureLowAlarm;
+  doc["pressure_high_alarm"] = pressureSensorEnabled && solenoidPressureHighAlarm;
+  doc["pressure_battery_low_alarm"] = pressureSensorEnabled && solenoidBatteryLowAlarm;
+  if (pressureSensorEnabled && lastPressurePoll != 0) {
     doc["pressure_poll_seconds_ago"] = (millis() - lastPressurePoll) / 1000;
   }
 
@@ -264,7 +265,7 @@ static void web_handle_get_status() {
 
 static void web_handle_start_timer() {
   if (vfdLowPressureLockout) {
-    server.send(503, "text/plain", "Pump disabled (low pressure); reboot required");
+    server.send(503, "text/plain", "Pump disabled (low pressure); turn off the pressure sensor to run");
     return;
   }
 
@@ -348,16 +349,45 @@ static void web_handle_health() {
   doc["vfd"] = vfdMode;
   doc["remote_signal_on"] = remoteSignalOn;
   doc["timer_running"] = timerRunning;
-  doc["pressure_valid"] = solenoidPressureValid;
-  doc["pressure_stale"] = solenoidPressureStale;
-  if (solenoidPressureValid || solenoidPressureStale) {
+  doc["pressure_sensor_enabled"] = pressureSensorEnabled;
+  doc["pressure_valid"] = pressureSensorEnabled && solenoidPressureValid;
+  doc["pressure_stale"] = pressureSensorEnabled && solenoidPressureStale;
+  if (pressureSensorEnabled && (solenoidPressureValid || solenoidPressureStale)) {
     doc["pressure_psi"] = (int)solenoidPressurePsi;
   }
-  if (lastPressurePoll != 0) {
+  if (pressureSensorEnabled && lastPressurePoll != 0) {
     doc["pressure_poll_seconds_ago"] = (millis() - lastPressurePoll) / 1000;
   }
   doc["watchdog_timeout_sec"] = STATION_WATCHDOG_TIMEOUT_MS / 1000;
 
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
+static void web_handle_pressure_sensor() {
+  bool enabled;
+  if (server.hasArg("enabled")) {
+    enabled = server.arg("enabled") != "0" && server.arg("enabled") != "false";
+  } else if (server.hasArg("plain")) {
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, server.arg("plain"));
+    if (err || doc["enabled"].isNull()) {
+      server.send(400, "text/plain", "Missing enabled");
+      return;
+    }
+    enabled = doc["enabled"].as<bool>();
+  } else {
+    server.send(400, "text/plain", "Missing enabled");
+    return;
+  }
+
+  set_pressure_sensor_enabled(enabled);
+
+  JsonDocument doc;
+  doc["ok"] = true;
+  doc["pressure_sensor_enabled"] = pressureSensorEnabled;
+  doc["vfd_low_pressure_lockout"] = vfdLowPressureLockout;
   String json;
   serializeJson(doc, json);
   server.send(200, "application/json", json);
@@ -379,6 +409,7 @@ void web_server_init() {
     server.on("/stop", HTTP_POST, web_handle_stop_timer);
     server.on("/schedules", HTTP_GET, web_handle_get_schedules);
     server.on("/schedules", HTTP_PUT, web_handle_put_schedules);
+    server.on("/pressure_sensor", HTTP_POST, web_handle_pressure_sensor);
     webRoutesRegistered = true;
   }
 

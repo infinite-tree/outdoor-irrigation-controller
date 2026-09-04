@@ -29,9 +29,9 @@ float BlePressureSensor::rawToPsi(uint16_t raw, const BlePressureConfig &config)
     if (config.psi_max > 0.0f && psi > config.psi_max) {
       psi = config.psi_max;
     }
-    if (psi < config.psi_min) {
-      psi = config.psi_min;
-    }
+    // Signed tenths are linear through vacuum and negative zero-drift.
+    // Do not clamp the low end: a previous -20 psi floor made a drifted
+    // sensor look stuck at the clamp (idle -20, pump-on ~5).
     return (float)lroundf(psi);
   }
 
@@ -216,8 +216,11 @@ BlePressureReading BlePressureSensor::readOnce() {
   reading.error = nullptr;
 
   Serial.print("BLE pressure bytes");
-  for (size_t i = 0; i < value.size() && i < 8; i++) {
+  for (size_t i = 0; i < value.size() && i < 16; i++) {
     Serial.printf(" %02X", (uint8_t)value[i]);
+  }
+  if (value.size() > 16) {
+    Serial.printf(" (+%u)", (unsigned)(value.size() - 16));
   }
   Serial.printf(" -> raw=0x%04X (%d) psi=%d\n", raw, (int)raw_signed,
                 (int)reading.psi);

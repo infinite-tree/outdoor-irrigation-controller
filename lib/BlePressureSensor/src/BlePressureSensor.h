@@ -49,7 +49,7 @@ struct BlePressureConfig {
         big_endian(true),
         raw_tenths_divisor(10.0f),
         psi_max(250.0f),
-        psi_min(-20.0f) {}
+        psi_min(-250.0f) {}
 };
 
 class BlePressureSensor {
