@@ -35,8 +35,8 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
         <div class="next-run hidden" id="next-run"></div>
         <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
         <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
-        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled. Turn off pressure safety below to run the pump.</div>
-        <div class="alert alert-warn hidden" id="pressure-bypass-alert">Pressure safety is off — low/high PSI will not stop the pump</div>
+        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled. Turn off the pressure sensor below to run the pump.</div>
+        <div class="alert alert-warn hidden" id="pressure-bypass-alert">Remote pressure sensor is off</div>
         <div class="chips" id="chips"></div>
       </section>
 
@@ -57,18 +57,11 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
       <section class="panel ctrl" id="controls"></section>
 
       <section class="panel" id="pressure-settings">
-        <div class="lbl panel-lbl">Pressure sensor</div>
-        <p class="press-set-note" id="pressure-set-detail">Zero while the pump is off. Safety uses this PSI while watering.</p>
+        <div class="lbl panel-lbl">Remote pressure sensor</div>
+        <p class="press-set-note">When off, the station ignores solenoid PSI: no polling, alarms, or pump lockout.</p>
         <div class="press-set-row">
-          <span>Pump safety</span>
-          <button type="button" class="btn-done" id="pressure-safety-btn">On</button>
-        </div>
-        <div class="press-set-row">
-          <span>Zero / tare</span>
-          <div class="press-set-btns">
-            <button type="button" class="btn-done" id="pressure-zero-btn">Zero now</button>
-            <button type="button" class="btn-delete" id="pressure-clear-btn">Clear</button>
-          </div>
+          <span>Use sensor</span>
+          <button type="button" class="btn-done" id="pressure-sensor-btn">On</button>
         </div>
         <p class="press-set-msg hidden" id="pressure-set-msg"></p>
       </section>
@@ -125,8 +118,8 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .press-set-note{margin:0 0 8px;font-size:.78rem;color:#555}
 .press-set-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0}
 .press-set-row>span{font-size:.85rem;font-weight:600;color:#444}
-.press-set-btns{display:flex;gap:6px}
-.press-set-row .btn-done.safety-off{background:#fff3cd;border-color:#e0c36a;color:#856404}
+.press-set-row .btn-done{width:auto;padding:0 12px}
+.press-set-row .btn-done.sensor-off{background:#fff3cd;border-color:#e0c36a;color:#856404}
 .press-set-msg{margin:4px 0 0;font-size:.78rem;font-weight:600}
 .press-set-msg.ok{color:#155724}
 .press-set-msg.err{color:#b02a37}
@@ -438,6 +431,11 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       return;
     }
     wrap.classList.remove('pressure-alarm', 'pressure-stale');
+    if (s.pressure_sensor_enabled === false) {
+      val.textContent = 'Off';
+      wrap.classList.add('pressure-stale');
+      return;
+    }
     if ((s.pressure_valid || s.pressure_stale) && s.pressure_psi != null) {
       const prefix = s.pressure_stale ? '~' : '';
       val.textContent = prefix + s.pressure_psi + ' psi';
@@ -449,20 +447,6 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
       }
     } else {
       val.textContent = '—';
-    }
-
-    const detail = document.getElementById('pressure-set-detail');
-    if (detail) {
-      let text = 'Zero while the pump is off. Safety uses this PSI while watering.';
-      if (s.pressure_sensor_psi != null && s.pressure_offset_psi) {
-        const off = s.pressure_offset_psi;
-        const offLabel = (off > 0 ? '+' : '') + Math.round(off);
-        text = 'Sensor ' + s.pressure_sensor_psi + ' psi · tare ' + offLabel +
-          ' → ' + s.pressure_psi + ' psi';
-      } else if (s.pressure_sensor_psi != null && s.pressure_sensor_psi !== s.pressure_psi) {
-        text = 'Sensor ' + s.pressure_sensor_psi + ' psi';
-      }
-      detail.textContent = text;
     }
   }
 
@@ -495,18 +479,18 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
 
     const pressureBypassAlert = document.getElementById('pressure-bypass-alert');
     if (pressureBypassAlert) {
-      if (s.pressure_safety_enabled === false) {
+      if (s.pressure_sensor_enabled === false) {
         pressureBypassAlert.classList.remove('hidden');
       } else {
         pressureBypassAlert.classList.add('hidden');
       }
     }
 
-    const safetyBtn = document.getElementById('pressure-safety-btn');
-    if (safetyBtn) {
-      const on = s.pressure_safety_enabled !== false;
-      safetyBtn.textContent = on ? 'On' : 'Off';
-      safetyBtn.classList.toggle('safety-off', !on);
+    const sensorBtn = document.getElementById('pressure-sensor-btn');
+    if (sensorBtn) {
+      const on = s.pressure_sensor_enabled !== false;
+      sensorBtn.textContent = on ? 'On' : 'Off';
+      sensorBtn.classList.toggle('sensor-off', !on);
     }
 
     const z = s.zones || {};
@@ -1100,49 +1084,26 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     });
   }
 
-  const safetyBtn = document.getElementById('pressure-safety-btn');
-  if (safetyBtn) {
-    safetyBtn.addEventListener('click', function () {
-      const currentlyOn = safetyBtn.textContent === 'On';
+  const sensorBtn = document.getElementById('pressure-sensor-btn');
+  if (sensorBtn) {
+    sensorBtn.addEventListener('click', function () {
+      const currentlyOn = sensorBtn.textContent === 'On';
       const nextOn = !currentlyOn;
-      safetyBtn.disabled = true;
-      setPressureMsg(nextOn ? 'Enabling pressure safety…' : 'Disabling pressure safety…', false);
-      postForm('/pressure_safety', 'enabled=' + (nextOn ? '1' : '0'))
+      sensorBtn.disabled = true;
+      setPressureMsg(nextOn ? 'Enabling pressure sensor…' : 'Disabling pressure sensor…', false);
+      postForm('/pressure_sensor', 'enabled=' + (nextOn ? '1' : '0'))
         .then(function () {
-          setPressureMsg(nextOn ? 'Pressure safety on' : 'Pressure safety off — pump will not lock out', false);
+          setPressureMsg(nextOn ? 'Pressure sensor on' : 'Pressure sensor off', false);
           return refresh();
         })
         .catch(function (err) {
           setPressureMsg(err.message || 'Update failed', true);
         })
         .finally(function () {
-          safetyBtn.disabled = false;
+          sensorBtn.disabled = false;
         });
     });
   }
-
-  const zeroBtn = document.getElementById('pressure-zero-btn');
-  const clearBtn = document.getElementById('pressure-clear-btn');
-  function bindOffset(btn, action, busy, done) {
-    if (!btn) return;
-    btn.addEventListener('click', function () {
-      btn.disabled = true;
-      setPressureMsg(busy, false);
-      postForm('/pressure_offset', 'action=' + action)
-        .then(function () {
-          setPressureMsg(done, false);
-          return refresh();
-        })
-        .catch(function (err) {
-          setPressureMsg(err.message || 'Update failed', true);
-        })
-        .finally(function () {
-          btn.disabled = false;
-        });
-    });
-  }
-  bindOffset(zeroBtn, 'zero', 'Zeroing sensor…', 'Zeroed to the current reading');
-  bindOffset(clearBtn, 'clear', 'Clearing offset…', 'Offset cleared');
 
   refresh();
   setInterval(refresh, POLL_MS);

@@ -61,16 +61,14 @@
 // CirrusSense TDWLB-LC: signed int16 BIG-ENDIAN, psi = raw / 10. nRF Connect shows
 // the bytes in wire order, e.g. "03-A8" -> 0x03A8 = 936 -> 93.6 psi; "FF-F4" ->
 // 0xFFF4 = -12 -> -1.2 psi (slight vacuum). Negative values are not clamped near
-// zero so a drifted idle reading is visible. Tare from the solenoid or station
-// web UI (Zero now) without reflashing; OFFSET_PSI is only the boot default.
-// Set BIG_ENDIAN to 0 if your sensor sends LSB first. Set SCALE_TENTHS to 0 for
-// legacy two-point linear scaling (RAW_REF_* below).
+// zero so a drifted idle reading is visible. Set BIG_ENDIAN to 0 if your sensor
+// sends LSB first. Set SCALE_TENTHS to 0 for legacy two-point linear scaling
+// (RAW_REF_* below).
 #define BLE_PRESSURE_SCALE_TENTHS           1
 #define BLE_PRESSURE_BIG_ENDIAN             1
 #define BLE_PRESSURE_TENTHS_DIVISOR         10.0f
 #define BLE_PRESSURE_MAX_PSI                250.0f
 #define BLE_PRESSURE_MIN_PSI                -250.0f
-#define BLE_PRESSURE_OFFSET_PSI             0.0f
 #define BLE_PRESSURE_RAW_ZERO_SENTINEL      0xFFFF
 #define BLE_PRESSURE_RAW_FLOOR              2000
 #define BLE_PRESSURE_RAW_REF_LOW          19000

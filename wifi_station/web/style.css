@@ -31,8 +31,8 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .press-set-note{margin:0 0 8px;font-size:.78rem;color:#555}
 .press-set-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0}
 .press-set-row>span{font-size:.85rem;font-weight:600;color:#444}
-.press-set-btns{display:flex;gap:6px}
-.press-set-row .btn-done.safety-off{background:#fff3cd;border-color:#e0c36a;color:#856404}
+.press-set-row .btn-done{width:auto;padding:0 12px}
+.press-set-row .btn-done.sensor-off{background:#fff3cd;border-color:#e0c36a;color:#856404}
 .press-set-msg{margin:4px 0 0;font-size:.78rem;font-weight:600}
 .press-set-msg.ok{color:#155724}
 .press-set-msg.err{color:#b02a37}

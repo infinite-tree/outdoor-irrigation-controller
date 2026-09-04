@@ -13,7 +13,6 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
-#include <string.h>
 #include <InfluxArduino.hpp>
 #include <RootCert.h>
 
@@ -156,12 +155,10 @@ GxEPD_Class display(io, EDP_RSET_PIN, EDP_BUSY_PIN);
 bool remoteSignalOn = false;
 bool vfdErrorActive = false;
 bool vfdLowPressureLockout = false;
-bool pressureSafetyEnabled = true;
+bool pressureSensorEnabled = true;
 byte currentZoneState = ZONES_OFF;
 
 float solenoidPressurePsi = 0.0f;
-float solenoidPressureSensorPsi = 0.0f;
-float solenoidPressureOffsetPsi = 0.0f;
 int solenoidBatteryPct = -1;
 bool solenoidPressureValid = false;
 bool solenoidPressureStale = false;
@@ -498,6 +495,9 @@ unsigned long pressure_poll_interval_ms() {
 }
 
 void request_immediate_pressure_poll() {
+  if (!pressureSensorEnabled) {
+    return;
+  }
   lastPressurePoll = 0;
 }
 
@@ -527,12 +527,6 @@ bool parse_solenoid_pressure_json(JsonDocument &doc, SolenoidPressureSample *sam
   }
 
   sample->psi = doc["pressure_psi"].as<float>();
-  sample->sensor_psi = doc["pressure_sensor_psi"].isNull()
-                           ? sample->psi
-                           : doc["pressure_sensor_psi"].as<float>();
-  sample->offset_psi = doc["pressure_offset_psi"].isNull()
-                           ? 0.0f
-                           : doc["pressure_offset_psi"].as<float>();
   sample->battery_valid = !doc["pressure_battery_pct"].isNull();
   sample->battery_pct =
       sample->battery_valid ? doc["pressure_battery_pct"].as<int>() : -1;
@@ -629,8 +623,6 @@ static bool apply_solenoid_pressure_sample(const SolenoidPressureSample &sample)
   }
 
   solenoidPressurePsi = sample.psi;
-  solenoidPressureSensorPsi = sample.sensor_psi;
-  solenoidPressureOffsetPsi = sample.offset_psi;
   solenoidBatteryValid = sample.battery_valid;
   if (sample.battery_valid) {
     solenoidBatteryPct = sample.battery_pct;
@@ -648,6 +640,10 @@ static bool apply_solenoid_pressure_sample(const SolenoidPressureSample &sample)
 }
 
 bool refresh_pressure_from_solenoid() {
+  if (!pressureSensorEnabled) {
+    return false;
+  }
+
   const unsigned long now = millis();
   lastPressureFetchAttempt = now;
 
@@ -685,6 +681,10 @@ static volatile bool pressure_status_refresh_pending = false;
 static bool pressure_status_refresh_in_progress = false;
 
 void request_pressure_for_status_refresh() {
+  if (!pressureSensorEnabled) {
+    return;
+  }
+
   const unsigned long now = millis();
   const bool cache_empty = pressure_cache_is_empty();
   const bool cache_zero =
@@ -701,7 +701,8 @@ void request_pressure_for_status_refresh() {
 }
 
 void process_pending_pressure_status_refresh() {
-  if (!pressure_status_refresh_pending || pressure_status_refresh_in_progress) {
+  if (!pressureSensorEnabled || !pressure_status_refresh_pending ||
+      pressure_status_refresh_in_progress) {
     return;
   }
 
@@ -715,67 +716,51 @@ void process_pending_pressure_status_refresh() {
 static void trigger_low_pressure_vfd_lockout();
 static void clear_low_pressure_vfd_lockout();
 
-void pressure_settings_init() {
+static void clear_station_pressure_state() {
+  pressure_status_refresh_pending = false;
+  lastPressurePoll = 0;
+  lastPressureFetchAttempt = 0;
+  solenoidPressureValid = false;
+  solenoidPressureStale = false;
+  solenoidBatteryValid = false;
+  solenoidPressureLowAlarm = false;
+  solenoidPressureHighAlarm = false;
+  solenoidBatteryLowAlarm = false;
+  batteryLowAlertSent = false;
+  reset_pressure_alarm_state();
+  clear_low_pressure_vfd_lockout();
+}
+
+void pressure_sensor_init() {
   Preferences prefs;
   if (!prefs.begin("presscfg", true)) {
-    pressureSafetyEnabled = true;
+    pressureSensorEnabled = true;
     return;
   }
-  pressureSafetyEnabled = prefs.getBool("safety", true);
+  pressureSensorEnabled = prefs.getBool("sensor", prefs.getBool("safety", true));
   prefs.end();
-  Serial.print("Pressure safety ");
-  Serial.println(pressureSafetyEnabled ? "enabled" : "disabled");
+  Serial.print("Remote pressure sensor ");
+  Serial.println(pressureSensorEnabled ? "enabled" : "disabled");
+  if (!pressureSensorEnabled) {
+    clear_station_pressure_state();
+  }
 }
 
-bool set_pressure_safety(bool enabled) {
-  pressureSafetyEnabled = enabled;
+bool set_pressure_sensor_enabled(bool enabled) {
+  pressureSensorEnabled = enabled;
   Preferences prefs;
   if (prefs.begin("presscfg", false)) {
-    prefs.putBool("safety", enabled);
+    prefs.putBool("sensor", enabled);
     prefs.end();
   }
-  Serial.print("Pressure safety ");
+  Serial.print("Remote pressure sensor ");
   Serial.println(enabled ? "enabled" : "disabled");
   if (!enabled) {
-    clear_low_pressure_vfd_lockout();
-    reset_pressure_alarm_state();
-    solenoidPressureLowAlarm = false;
-    solenoidPressureHighAlarm = false;
+    clear_station_pressure_state();
+  } else {
+    request_immediate_pressure_poll();
   }
   display_task_request_refresh();
-  return true;
-}
-
-bool solenoid_post_pressure_offset(const char *action, String &errorOut) {
-  if (action == nullptr ||
-      (strcmp(action, "zero") != 0 && strcmp(action, "clear") != 0)) {
-    errorOut = "Unknown action";
-    return false;
-  }
-
-  String url = "http://" + String(SOLENOID_HTTP_HOST) + "/pressure_offset";
-  String postData = String("action=") + action;
-  WiFiClient client;
-  HTTPClient http;
-  http.setTimeout(SOLENOID_HTTP_TIMEOUT_MS);
-  http.setConnectTimeout(SOLENOID_HTTP_CONNECT_MS);
-  http.setReuse(false);
-  http.begin(client, url);
-  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-  http.addHeader("Connection", "close");
-  int code = http.POST(postData);
-  String body = http.getString();
-  http.end();
-
-  if (code != 200) {
-    errorOut = body.length() ? body : ("solenoid offset HTTP " + String(code));
-    Serial.print("Solenoid pressure offset failed: ");
-    Serial.println(errorOut);
-    return false;
-  }
-
-  request_immediate_pressure_poll();
-  refresh_pressure_from_solenoid();
   return true;
 }
 
@@ -795,7 +780,7 @@ static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
   char datetime[40];
   format_event_datetime(datetime, sizeof(datetime));
 
-  if (pressureSafetyEnabled && sample.psi < PRESSURE_LOW_PSI) {
+  if (sample.psi < PRESSURE_LOW_PSI) {
     if (pressureLowSince == 0) {
       pressureLowSince = now;
     }
@@ -814,7 +799,7 @@ static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
     }
   }
 
-  if (pressureSafetyEnabled && sample.psi > PRESSURE_HIGH_PSI) {
+  if (sample.psi > PRESSURE_HIGH_PSI) {
     if (pressureHighSince == 0) {
       pressureHighSince = now;
     }
@@ -845,6 +830,10 @@ static void evaluate_pressure_alarms(const SolenoidPressureSample &sample,
 }
 
 void update_pressure_monitoring() {
+  if (!pressureSensorEnabled) {
+    return;
+  }
+
   const unsigned long now = millis();
   if (!pressure_poll_due(now)) {
     return;
@@ -1002,13 +991,13 @@ static void trigger_low_pressure_vfd_lockout() {
   if (vfdLowPressureLockout) {
     return;
   }
-  if (!pressureSafetyEnabled) {
-    Serial.println("Low pressure alarm ignored; pressure safety disabled");
+  if (!pressureSensorEnabled) {
+    Serial.println("Low pressure alarm ignored; remote pressure sensor disabled");
     return;
   }
   vfdLowPressureLockout = true;
   solenoidPressureLowAlarm = true;
-  Serial.println("Low pressure VFD lockout — disable pressure safety to run the pump");
+  Serial.println("Low pressure VFD lockout — disable the pressure sensor to run the pump");
   if (timerRunning) {
     stop_timer();
   } else {
@@ -1168,7 +1157,7 @@ void setup() {
   display_task_start();
   web_server_init();
   schedule_init();
-  pressure_settings_init();
+  pressure_sensor_init();
   setupInflux();
   station_watchdog_init();
   display_task_request_refresh();

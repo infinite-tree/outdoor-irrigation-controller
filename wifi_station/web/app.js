@@ -243,6 +243,11 @@
       return;
     }
     wrap.classList.remove('pressure-alarm', 'pressure-stale');
+    if (s.pressure_sensor_enabled === false) {
+      val.textContent = 'Off';
+      wrap.classList.add('pressure-stale');
+      return;
+    }
     if ((s.pressure_valid || s.pressure_stale) && s.pressure_psi != null) {
       const prefix = s.pressure_stale ? '~' : '';
       val.textContent = prefix + s.pressure_psi + ' psi';
@@ -254,20 +259,6 @@
       }
     } else {
       val.textContent = '—';
-    }
-
-    const detail = document.getElementById('pressure-set-detail');
-    if (detail) {
-      let text = 'Zero while the pump is off. Safety uses this PSI while watering.';
-      if (s.pressure_sensor_psi != null && s.pressure_offset_psi) {
-        const off = s.pressure_offset_psi;
-        const offLabel = (off > 0 ? '+' : '') + Math.round(off);
-        text = 'Sensor ' + s.pressure_sensor_psi + ' psi · tare ' + offLabel +
-          ' → ' + s.pressure_psi + ' psi';
-      } else if (s.pressure_sensor_psi != null && s.pressure_sensor_psi !== s.pressure_psi) {
-        text = 'Sensor ' + s.pressure_sensor_psi + ' psi';
-      }
-      detail.textContent = text;
     }
   }
 
@@ -300,18 +291,18 @@
 
     const pressureBypassAlert = document.getElementById('pressure-bypass-alert');
     if (pressureBypassAlert) {
-      if (s.pressure_safety_enabled === false) {
+      if (s.pressure_sensor_enabled === false) {
         pressureBypassAlert.classList.remove('hidden');
       } else {
         pressureBypassAlert.classList.add('hidden');
       }
     }
 
-    const safetyBtn = document.getElementById('pressure-safety-btn');
-    if (safetyBtn) {
-      const on = s.pressure_safety_enabled !== false;
-      safetyBtn.textContent = on ? 'On' : 'Off';
-      safetyBtn.classList.toggle('safety-off', !on);
+    const sensorBtn = document.getElementById('pressure-sensor-btn');
+    if (sensorBtn) {
+      const on = s.pressure_sensor_enabled !== false;
+      sensorBtn.textContent = on ? 'On' : 'Off';
+      sensorBtn.classList.toggle('sensor-off', !on);
     }
 
     const z = s.zones || {};
@@ -905,49 +896,26 @@
     });
   }
 
-  const safetyBtn = document.getElementById('pressure-safety-btn');
-  if (safetyBtn) {
-    safetyBtn.addEventListener('click', function () {
-      const currentlyOn = safetyBtn.textContent === 'On';
+  const sensorBtn = document.getElementById('pressure-sensor-btn');
+  if (sensorBtn) {
+    sensorBtn.addEventListener('click', function () {
+      const currentlyOn = sensorBtn.textContent === 'On';
       const nextOn = !currentlyOn;
-      safetyBtn.disabled = true;
-      setPressureMsg(nextOn ? 'Enabling pressure safety…' : 'Disabling pressure safety…', false);
-      postForm('/pressure_safety', 'enabled=' + (nextOn ? '1' : '0'))
+      sensorBtn.disabled = true;
+      setPressureMsg(nextOn ? 'Enabling pressure sensor…' : 'Disabling pressure sensor…', false);
+      postForm('/pressure_sensor', 'enabled=' + (nextOn ? '1' : '0'))
         .then(function () {
-          setPressureMsg(nextOn ? 'Pressure safety on' : 'Pressure safety off — pump will not lock out', false);
+          setPressureMsg(nextOn ? 'Pressure sensor on' : 'Pressure sensor off', false);
           return refresh();
         })
         .catch(function (err) {
           setPressureMsg(err.message || 'Update failed', true);
         })
         .finally(function () {
-          safetyBtn.disabled = false;
+          sensorBtn.disabled = false;
         });
     });
   }
-
-  const zeroBtn = document.getElementById('pressure-zero-btn');
-  const clearBtn = document.getElementById('pressure-clear-btn');
-  function bindOffset(btn, action, busy, done) {
-    if (!btn) return;
-    btn.addEventListener('click', function () {
-      btn.disabled = true;
-      setPressureMsg(busy, false);
-      postForm('/pressure_offset', 'action=' + action)
-        .then(function () {
-          setPressureMsg(done, false);
-          return refresh();
-        })
-        .catch(function (err) {
-          setPressureMsg(err.message || 'Update failed', true);
-        })
-        .finally(function () {
-          btn.disabled = false;
-        });
-    });
-  }
-  bindOffset(zeroBtn, 'zero', 'Zeroing sensor…', 'Zeroed to the current reading');
-  bindOffset(clearBtn, 'clear', 'Clearing offset…', 'Offset cleared');
 
   refresh();
   setInterval(refresh, POLL_MS);
