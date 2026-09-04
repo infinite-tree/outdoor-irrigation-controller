@@ -255,6 +255,20 @@
     } else {
       val.textContent = '—';
     }
+
+    const detail = document.getElementById('pressure-set-detail');
+    if (detail) {
+      let text = 'Zero while the pump is off. Safety uses this PSI while watering.';
+      if (s.pressure_sensor_psi != null && s.pressure_offset_psi) {
+        const off = s.pressure_offset_psi;
+        const offLabel = (off > 0 ? '+' : '') + Math.round(off);
+        text = 'Sensor ' + s.pressure_sensor_psi + ' psi · tare ' + offLabel +
+          ' → ' + s.pressure_psi + ' psi';
+      } else if (s.pressure_sensor_psi != null && s.pressure_sensor_psi !== s.pressure_psi) {
+        text = 'Sensor ' + s.pressure_sensor_psi + ' psi';
+      }
+      detail.textContent = text;
+    }
   }
 
   function renderStatus(s) {
@@ -282,6 +296,22 @@
       pressureLockoutAlert.classList.remove('hidden');
     } else {
       pressureLockoutAlert.classList.add('hidden');
+    }
+
+    const pressureBypassAlert = document.getElementById('pressure-bypass-alert');
+    if (pressureBypassAlert) {
+      if (s.pressure_safety_enabled === false) {
+        pressureBypassAlert.classList.remove('hidden');
+      } else {
+        pressureBypassAlert.classList.add('hidden');
+      }
+    }
+
+    const safetyBtn = document.getElementById('pressure-safety-btn');
+    if (safetyBtn) {
+      const on = s.pressure_safety_enabled !== false;
+      safetyBtn.textContent = on ? 'On' : 'Off';
+      safetyBtn.classList.toggle('safety-off', !on);
     }
 
     const z = s.zones || {};
@@ -845,6 +875,79 @@
       openEdit(editBtn.getAttribute('data-key'));
     }
   });
+
+  function setPressureMsg(text, isError) {
+    const el = document.getElementById('pressure-set-msg');
+    if (!el) return;
+    if (!text) {
+      el.classList.add('hidden');
+      el.textContent = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    el.textContent = text;
+    el.classList.toggle('ok', !isError);
+    el.classList.toggle('err', !!isError);
+  }
+
+  function postForm(path, body) {
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        if (!r.ok) {
+          throw new Error(text || 'Request failed');
+        }
+        return text;
+      });
+    });
+  }
+
+  const safetyBtn = document.getElementById('pressure-safety-btn');
+  if (safetyBtn) {
+    safetyBtn.addEventListener('click', function () {
+      const currentlyOn = safetyBtn.textContent === 'On';
+      const nextOn = !currentlyOn;
+      safetyBtn.disabled = true;
+      setPressureMsg(nextOn ? 'Enabling pressure safety…' : 'Disabling pressure safety…', false);
+      postForm('/pressure_safety', 'enabled=' + (nextOn ? '1' : '0'))
+        .then(function () {
+          setPressureMsg(nextOn ? 'Pressure safety on' : 'Pressure safety off — pump will not lock out', false);
+          return refresh();
+        })
+        .catch(function (err) {
+          setPressureMsg(err.message || 'Update failed', true);
+        })
+        .finally(function () {
+          safetyBtn.disabled = false;
+        });
+    });
+  }
+
+  const zeroBtn = document.getElementById('pressure-zero-btn');
+  const clearBtn = document.getElementById('pressure-clear-btn');
+  function bindOffset(btn, action, busy, done) {
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      setPressureMsg(busy, false);
+      postForm('/pressure_offset', 'action=' + action)
+        .then(function () {
+          setPressureMsg(done, false);
+          return refresh();
+        })
+        .catch(function (err) {
+          setPressureMsg(err.message || 'Update failed', true);
+        })
+        .finally(function () {
+          btn.disabled = false;
+        });
+    });
+  }
+  bindOffset(zeroBtn, 'zero', 'Zeroing sensor…', 'Zeroed to the current reading');
+  bindOffset(clearBtn, 'clear', 'Clearing offset…', 'Offset cleared');
 
   refresh();
   setInterval(refresh, POLL_MS);

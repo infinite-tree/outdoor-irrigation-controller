@@ -51,6 +51,11 @@
     if (s.pressure_stale) {
       line = line ? line + ' · stale' : 'stale';
     }
+    if (s.pressure_offset_psi) {
+      const off = s.pressure_offset_psi;
+      const offLabel = (off > 0 ? '+' : '') + Math.round(off);
+      line = line ? line + ' · tare ' + offLabel : 'tare ' + offLabel;
+    }
     return line;
   }
 
@@ -84,6 +89,60 @@
 
     meta.textContent = formatReadTime(s);
     meta.classList.toggle('stale', !!s.pressure_stale);
+  }
+
+  function setPressureMessage(text, isError) {
+    const el = document.getElementById('pressure-msg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('err', !!isError);
+  }
+
+  function postPressureOffset(action) {
+    setPressureMessage(action === 'zero' ? 'Zeroing…' : 'Clearing offset…', false);
+    const zeroBtn = document.getElementById('pressure-zero-btn');
+    const clearBtn = document.getElementById('pressure-clear-btn');
+    if (zeroBtn) zeroBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
+    fetch('/pressure_offset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'action=' + encodeURIComponent(action)
+    })
+      .then(function (r) {
+        return r.text().then(function (text) {
+          if (!r.ok) {
+            throw new Error(text || 'request failed');
+          }
+          return text;
+        });
+      })
+      .then(function () {
+        setPressureMessage(action === 'zero' ? 'Zeroed to current reading' : 'Offset cleared', false);
+        return refresh();
+      })
+      .catch(function (err) {
+        setPressureMessage(err.message || 'Update failed', true);
+      })
+      .finally(function () {
+        if (zeroBtn) zeroBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
+      });
+  }
+
+  function bindPressureActions() {
+    const zeroBtn = document.getElementById('pressure-zero-btn');
+    const clearBtn = document.getElementById('pressure-clear-btn');
+    if (zeroBtn) {
+      zeroBtn.addEventListener('click', function () {
+        postPressureOffset('zero');
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        postPressureOffset('clear');
+      });
+    }
   }
 
   function renderChips(s) {
@@ -222,5 +281,6 @@
   }
 
   refresh();
+  bindPressureActions();
   setInterval(refresh, POLL_MS);
 })();

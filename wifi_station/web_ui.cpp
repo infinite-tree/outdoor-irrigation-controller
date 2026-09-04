@@ -171,6 +171,7 @@ static void web_handle_get_status() {
   doc["solenoid_error"] = (currentZoneState == ZONE_ERROR);
   doc["vfd_error"] = vfdErrorActive;
   doc["vfd_low_pressure_lockout"] = vfdLowPressureLockout;
+  doc["pressure_safety_enabled"] = pressureSafetyEnabled;
 
   JsonObject zones = doc["zones"].to<JsonObject>();
   zones["z1"] = ui_status_key(ui_solenoid_zone1_status());
@@ -189,7 +190,7 @@ static void web_handle_get_status() {
       snprintf(nowMain, sizeof(nowMain), "%s · %s left", mode_label(timerMode).c_str(), remaining);
     }
     if (vfdLowPressureLockout) {
-      snprintf(nowSub, sizeof(nowSub), "Pump disabled until reboot · %s total", duration);
+      snprintf(nowSub, sizeof(nowSub), "Pump disabled — turn off pressure safety · %s total", duration);
     } else if (vfdErrorActive) {
       snprintf(nowSub, sizeof(nowSub), "VFD drive error · %s total · Pump %s", duration, vfd_label(vfdMode).c_str());
     } else {
@@ -212,7 +213,7 @@ static void web_handle_get_status() {
       snprintf(nowMain, sizeof(nowMain), "Not watering");
     }
     if (vfdLowPressureLockout) {
-      snprintf(nowSub, sizeof(nowSub), "Pump disabled until reboot");
+      snprintf(nowSub, sizeof(nowSub), "Pump disabled — turn off pressure safety");
     } else if (vfdErrorActive) {
       snprintf(nowSub, sizeof(nowSub), "VFD drive error · Pump %s", vfd_label(vfdMode).c_str());
     } else {
@@ -233,6 +234,8 @@ static void web_handle_get_status() {
   doc["pressure_stale"] = solenoidPressureStale;
   if (solenoidPressureValid || solenoidPressureStale) {
     doc["pressure_psi"] = (int)solenoidPressurePsi;
+    doc["pressure_sensor_psi"] = (int)solenoidPressureSensorPsi;
+    doc["pressure_offset_psi"] = solenoidPressureOffsetPsi;
   }
   if (solenoidBatteryValid) {
     doc["pressure_battery_pct"] = solenoidBatteryPct;
@@ -253,7 +256,7 @@ static void web_handle_get_status() {
 
   schedule_append_status_json(doc);
 
-  static char jsonBuffer[3072];
+  static char jsonBuffer[3584];
   size_t jsonLen = serializeJson(doc, jsonBuffer, sizeof(jsonBuffer));
   if (jsonLen == 0 || jsonLen >= sizeof(jsonBuffer)) {
     server.send(500, "text/plain", "Status JSON too large");
@@ -264,7 +267,7 @@ static void web_handle_get_status() {
 
 static void web_handle_start_timer() {
   if (vfdLowPressureLockout) {
-    server.send(503, "text/plain", "Pump disabled (low pressure); reboot required");
+    server.send(503, "text/plain", "Pump disabled (low pressure); turn off pressure safety to run");
     return;
   }
 
@@ -353,11 +356,73 @@ static void web_handle_health() {
   if (solenoidPressureValid || solenoidPressureStale) {
     doc["pressure_psi"] = (int)solenoidPressurePsi;
   }
+  doc["pressure_safety_enabled"] = pressureSafetyEnabled;
   if (lastPressurePoll != 0) {
     doc["pressure_poll_seconds_ago"] = (millis() - lastPressurePoll) / 1000;
   }
   doc["watchdog_timeout_sec"] = STATION_WATCHDOG_TIMEOUT_MS / 1000;
 
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
+static void web_handle_pressure_safety() {
+  bool enabled;
+  if (server.hasArg("enabled")) {
+    enabled = server.arg("enabled") != "0" && server.arg("enabled") != "false";
+  } else if (server.hasArg("plain")) {
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, server.arg("plain"));
+    if (err || doc["enabled"].isNull()) {
+      server.send(400, "text/plain", "Missing enabled");
+      return;
+    }
+    enabled = doc["enabled"].as<bool>();
+  } else {
+    server.send(400, "text/plain", "Missing enabled");
+    return;
+  }
+
+  set_pressure_safety(enabled);
+
+  JsonDocument doc;
+  doc["ok"] = true;
+  doc["pressure_safety_enabled"] = pressureSafetyEnabled;
+  doc["vfd_low_pressure_lockout"] = vfdLowPressureLockout;
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
+static void web_handle_pressure_offset() {
+  String action;
+  if (server.hasArg("action")) {
+    action = server.arg("action");
+  } else if (server.hasArg("plain")) {
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, server.arg("plain"));
+    if (err || doc["action"].isNull()) {
+      server.send(400, "text/plain", "Missing action");
+      return;
+    }
+    action = doc["action"] | "";
+  } else {
+    server.send(400, "text/plain", "Missing action");
+    return;
+  }
+
+  String errorOut;
+  if (!solenoid_post_pressure_offset(action.c_str(), errorOut)) {
+    server.send(409, "text/plain", errorOut);
+    return;
+  }
+
+  JsonDocument doc;
+  doc["ok"] = true;
+  doc["pressure_psi"] = (int)solenoidPressurePsi;
+  doc["pressure_sensor_psi"] = (int)solenoidPressureSensorPsi;
+  doc["pressure_offset_psi"] = solenoidPressureOffsetPsi;
   String json;
   serializeJson(doc, json);
   server.send(200, "application/json", json);
@@ -379,6 +444,8 @@ void web_server_init() {
     server.on("/stop", HTTP_POST, web_handle_stop_timer);
     server.on("/schedules", HTTP_GET, web_handle_get_schedules);
     server.on("/schedules", HTTP_PUT, web_handle_put_schedules);
+    server.on("/pressure_safety", HTTP_POST, web_handle_pressure_safety);
+    server.on("/pressure_offset", HTTP_POST, web_handle_pressure_offset);
     webRoutesRegistered = true;
   }
 

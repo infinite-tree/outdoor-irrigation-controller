@@ -30,7 +30,8 @@
         <div class="next-run hidden" id="next-run"></div>
         <div class="alert hidden" id="solenoid-alert">Could not reach solenoid controller</div>
         <div class="alert hidden" id="vfd-alert">VFD drive fault — check Frenic Mini</div>
-        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled until reboot</div>
+        <div class="alert hidden" id="pressure-lockout-alert">Low pressure — pump disabled. Turn off pressure safety below to run the pump.</div>
+        <div class="alert alert-warn hidden" id="pressure-bypass-alert">Pressure safety is off — low/high PSI will not stop the pump</div>
         <div class="chips" id="chips"></div>
       </section>
 
@@ -49,6 +50,23 @@
       </section>
 
       <section class="panel ctrl" id="controls"></section>
+
+      <section class="panel" id="pressure-settings">
+        <div class="lbl panel-lbl">Pressure sensor</div>
+        <p class="press-set-note" id="pressure-set-detail">Zero while the pump is off. Safety uses this PSI while watering.</p>
+        <div class="press-set-row">
+          <span>Pump safety</span>
+          <button type="button" class="btn-done" id="pressure-safety-btn">On</button>
+        </div>
+        <div class="press-set-row">
+          <span>Zero / tare</span>
+          <div class="press-set-btns">
+            <button type="button" class="btn-done" id="pressure-zero-btn">Zero now</button>
+            <button type="button" class="btn-delete" id="pressure-clear-btn">Clear</button>
+          </div>
+        </div>
+        <p class="press-set-msg hidden" id="pressure-set-msg"></p>
+      </section>
     </div>
 
     <div class="tab-panel" id="panel-schedules">

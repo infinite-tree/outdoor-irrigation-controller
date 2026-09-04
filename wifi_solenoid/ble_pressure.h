@@ -14,3 +14,6 @@ bool ble_pressure_is_stale();
 const char *ble_pressure_last_error();
 unsigned long ble_pressure_last_success_age_sec();
 time_t ble_pressure_last_success_epoch();
+float ble_pressure_offset_psi();
+bool ble_pressure_set_offset(float offset_psi, const char **error_out);
+bool ble_pressure_zero_to_current(const char **error_out);

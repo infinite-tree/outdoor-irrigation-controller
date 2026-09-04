@@ -4,6 +4,8 @@
 #include "display_task.h"
 
 #include <ArduinoJson.h>
+#include <math.h>
+#include <string.h>
 
 #ifndef SOLENOID_WATCHDOG_TIMEOUT_MS
 #define SOLENOID_WATCHDOG_TIMEOUT_MS 120000
@@ -32,6 +34,8 @@ static void append_pressure_json(JsonDocument &doc) {
     return;
   }
 
+  doc["pressure_offset_psi"] = ble_pressure_offset_psi();
+
   if (!ble_pressure_has_cache()) {
     doc["pressure_valid"] = false;
     doc["pressure_stale"] = false;
@@ -47,6 +51,7 @@ static void append_pressure_json(JsonDocument &doc) {
   doc["pressure_valid"] = fresh;
   doc["pressure_stale"] = stale;
   doc["pressure_psi"] = (int)reading.psi;
+  doc["pressure_sensor_psi"] = (int)lroundf(reading.sensor_psi);
   doc["pressure_raw"] = reading.raw;
   if (ble_pressure_has_cache()) {
     const unsigned long age_sec = ble_pressure_last_success_age_sec();
@@ -133,11 +138,13 @@ static void web_handle_health() {
   doc["zone2_on"] = zone2On;
   doc["pressure_enabled"] = ble_pressure_enabled();
   if (ble_pressure_enabled()) {
+    doc["pressure_offset_psi"] = ble_pressure_offset_psi();
     doc["pressure_valid"] = ble_pressure_is_fresh();
     doc["pressure_stale"] = ble_pressure_is_stale();
     if (ble_pressure_has_cache()) {
       const BlePressureReading reading = ble_pressure_get_cached();
       doc["pressure_psi"] = (int)reading.psi;
+      doc["pressure_sensor_psi"] = (int)lroundf(reading.sensor_psi);
       if (reading.battery_valid) {
         doc["pressure_battery_pct"] = reading.battery_pct;
       }
@@ -154,6 +161,71 @@ static void web_handle_health() {
   server.send(200, "application/json", json);
 }
 
+static void web_handle_pressure_offset() {
+  solenoid_mark_web_activity();
+
+  const char *error = nullptr;
+  bool ok = false;
+
+  if (server.hasArg("action")) {
+    const String action = server.arg("action");
+    if (action == "zero") {
+      ok = ble_pressure_zero_to_current(&error);
+    } else if (action == "clear") {
+      ok = ble_pressure_set_offset(0.0f, &error);
+    } else {
+      server.send(400, "text/plain", "Unknown action");
+      return;
+    }
+  } else if (server.hasArg("offset")) {
+    ok = ble_pressure_set_offset(server.arg("offset").toFloat(), &error);
+  } else if (server.hasArg("plain")) {
+    JsonDocument doc;
+    DeserializationError parse_error = deserializeJson(doc, server.arg("plain"));
+    if (parse_error) {
+      server.send(400, "text/plain", "Invalid JSON");
+      return;
+    }
+    const char *action = doc["action"] | "";
+    if (action[0] != '\0') {
+      if (strcmp(action, "zero") == 0) {
+        ok = ble_pressure_zero_to_current(&error);
+      } else if (strcmp(action, "clear") == 0) {
+        ok = ble_pressure_set_offset(0.0f, &error);
+      } else {
+        server.send(400, "text/plain", "Unknown action");
+        return;
+      }
+    } else if (!doc["offset"].isNull()) {
+      ok = ble_pressure_set_offset(doc["offset"].as<float>(), &error);
+    } else {
+      server.send(400, "text/plain", "Missing action or offset");
+      return;
+    }
+  } else {
+    server.send(400, "text/plain", "Missing action or offset");
+    return;
+  }
+
+  if (!ok) {
+    server.send(409, "text/plain", error != nullptr ? error : "offset failed");
+    return;
+  }
+
+  JsonDocument doc;
+  doc["ok"] = true;
+  doc["pressure_offset_psi"] = ble_pressure_offset_psi();
+  if (ble_pressure_has_cache()) {
+    const BlePressureReading reading = ble_pressure_get_cached();
+    doc["pressure_psi"] = (int)reading.psi;
+    doc["pressure_sensor_psi"] = (int)lroundf(reading.sensor_psi);
+  }
+  String json;
+  serializeJson(doc, json);
+  server.send(200, "application/json", json);
+  display_task_request_refresh();
+}
+
 void web_server_init() {
   Serial.print("Starting webserver ...");
   server.on("/", web_handle_index);
@@ -163,6 +235,7 @@ void web_server_init() {
   server.on("/status", HTTP_GET, web_handle_get_status);
   server.on("/health", HTTP_GET, web_handle_health);
   server.on("/set_zone", HTTP_POST, web_handle_set_zone);
+  server.on("/pressure_offset", HTTP_POST, web_handle_pressure_offset);
   server.begin();
   Serial.println("HTTP server started");
 }

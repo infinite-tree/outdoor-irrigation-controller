@@ -23,6 +23,11 @@ static const char WEB_INDEX_HTML[] PROGMEM = R"WSEMBED_7c4e9a(<!DOCTYPE html>
         </div>
         <div class="pressure-meta" id="pressure-meta"></div>
       </div>
+      <div class="pressure-actions" id="pressure-actions">
+        <button type="button" class="btn btn-secondary" id="pressure-zero-btn">Zero now</button>
+        <button type="button" class="btn btn-secondary" id="pressure-clear-btn">Clear offset</button>
+      </div>
+      <div class="status-msg" id="pressure-msg"></div>
     </section>
 
     <section class="panel panel-now">
@@ -41,7 +46,7 @@ static const size_t WEB_INDEX_HTML_LEN = sizeof(WEB_INDEX_HTML) - 1;
 static const char WEB_STYLE_CSS[] PROGMEM = R"WSEMBED_7c4e9a(*{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.35;color:#1a1a1a;background:#e8ecf1;-webkit-text-size-adjust:100%}
-.app{height:100dvh;max-width:26rem;margin:0 auto;padding:8px 10px;padding:max(8px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.app{height:100dvh;max-width:26rem;margin:0 auto;padding:8px 10px;padding:max(8px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:8px;overflow:auto}
 .hidden{display:none!important}
 .hdr{font-size:1.15rem;font-weight:700;color:#0056b3;text-align:center;margin:0}
 .panel{background:#fff;border-radius:10px;padding:10px 12px;box-shadow:0 1px 3px rgba(0,0,0,.07)}
@@ -52,6 +57,10 @@ body{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1
 .pressure-val{font-size:1.35rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2;margin-top:2px}
 .pressure-meta{text-align:right;font-size:.72rem;opacity:.9;line-height:1.35;max-width:55%}
 .pressure-meta.stale{color:#ffc9c9}
+.pressure-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.btn-secondary{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.45);font-size:.85rem;min-height:38px}
+.panel-now .status-msg{color:rgba(255,255,255,.92);margin-top:6px}
+.panel-now .status-msg.err{color:#ffc9c9}
 .chips{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-top:8px}
 .chip{border-radius:8px;padding:8px 4px;text-align:center;font-size:.75rem;font-weight:700;line-height:1.15}
 .chip b{display:block;font-size:.62rem;font-weight:600;opacity:.85;margin-bottom:2px}
@@ -121,6 +130,11 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
     if (s.pressure_stale) {
       line = line ? line + ' · stale' : 'stale';
     }
+    if (s.pressure_offset_psi) {
+      const off = s.pressure_offset_psi;
+      const offLabel = (off > 0 ? '+' : '') + Math.round(off);
+      line = line ? line + ' · tare ' + offLabel : 'tare ' + offLabel;
+    }
     return line;
   }
 
@@ -154,6 +168,60 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
 
     meta.textContent = formatReadTime(s);
     meta.classList.toggle('stale', !!s.pressure_stale);
+  }
+
+  function setPressureMessage(text, isError) {
+    const el = document.getElementById('pressure-msg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('err', !!isError);
+  }
+
+  function postPressureOffset(action) {
+    setPressureMessage(action === 'zero' ? 'Zeroing…' : 'Clearing offset…', false);
+    const zeroBtn = document.getElementById('pressure-zero-btn');
+    const clearBtn = document.getElementById('pressure-clear-btn');
+    if (zeroBtn) zeroBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
+    fetch('/pressure_offset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'action=' + encodeURIComponent(action)
+    })
+      .then(function (r) {
+        return r.text().then(function (text) {
+          if (!r.ok) {
+            throw new Error(text || 'request failed');
+          }
+          return text;
+        });
+      })
+      .then(function () {
+        setPressureMessage(action === 'zero' ? 'Zeroed to current reading' : 'Offset cleared', false);
+        return refresh();
+      })
+      .catch(function (err) {
+        setPressureMessage(err.message || 'Update failed', true);
+      })
+      .finally(function () {
+        if (zeroBtn) zeroBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
+      });
+  }
+
+  function bindPressureActions() {
+    const zeroBtn = document.getElementById('pressure-zero-btn');
+    const clearBtn = document.getElementById('pressure-clear-btn');
+    if (zeroBtn) {
+      zeroBtn.addEventListener('click', function () {
+        postPressureOffset('zero');
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        postPressureOffset('clear');
+      });
+    }
   }
 
   function renderChips(s) {
@@ -292,6 +360,7 @@ static const char WEB_APP_JS[] PROGMEM = R"WSEMBED_7c4e9a((function () {
   }
 
   refresh();
+  bindPressureActions();
   setInterval(refresh, POLL_MS);
 })();
 )WSEMBED_7c4e9a";

@@ -29,10 +29,10 @@ float BlePressureSensor::rawToPsi(uint16_t raw, const BlePressureConfig &config)
     if (config.psi_max > 0.0f && psi > config.psi_max) {
       psi = config.psi_max;
     }
-    if (psi < config.psi_min) {
-      psi = config.psi_min;
-    }
-    return (float)lroundf(psi);
+    // Signed tenths are linear through vacuum and negative zero-drift.
+    // Do not clamp the low end: a previous -20 psi floor made a drifted
+    // sensor look stuck at the clamp (idle -20, pump-on ~5).
+    return psi;
   }
 
   if (config.raw_zero_sentinel != 0 && raw == config.raw_zero_sentinel) {
@@ -59,7 +59,7 @@ float BlePressureSensor::rawToPsi(uint16_t raw, const BlePressureConfig &config)
 }
 
 BlePressureReading BlePressureSensor::makeError(const char *message) {
-  return {false, 0, 0.0f, -1, false, message};
+  return {false, 0, 0.0f, 0.0f, -1, false, message};
 }
 
 void BlePressureSensor::begin(const BlePressureConfig &config) {
@@ -210,17 +210,21 @@ BlePressureReading BlePressureSensor::readOnce() {
   BlePressureReading reading;
   reading.ok = true;
   reading.raw = raw;
-  reading.psi = rawToPsi(raw, config_);
+  reading.sensor_psi = rawToPsi(raw, config_);
+  reading.psi = (float)lroundf(reading.sensor_psi);
   reading.battery_pct = -1;
   reading.battery_valid = readBatteryPercent(&reading.battery_pct);
   reading.error = nullptr;
 
   Serial.print("BLE pressure bytes");
-  for (size_t i = 0; i < value.size() && i < 8; i++) {
+  for (size_t i = 0; i < value.size() && i < 16; i++) {
     Serial.printf(" %02X", (uint8_t)value[i]);
   }
-  Serial.printf(" -> raw=0x%04X (%d) psi=%d\n", raw, (int)raw_signed,
-                (int)reading.psi);
+  if (value.size() > 16) {
+    Serial.printf(" (+%u)", (unsigned)(value.size() - 16));
+  }
+  Serial.printf(" -> raw=0x%04X (%d) sensor=%.1f psi=%d\n", raw,
+                (int)raw_signed, reading.sensor_psi, (int)reading.psi);
 
   ensureDisconnected();
   return reading;

@@ -2,9 +2,11 @@
 
 #include "Config.h"
 
+#include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <math.h>
 #include <time.h>
 
 #ifndef BLE_PRESSURE_DEVICE_ID
@@ -65,7 +67,13 @@
 #define BLE_PRESSURE_MAX_PSI 250.0f
 #endif
 #ifndef BLE_PRESSURE_MIN_PSI
-#define BLE_PRESSURE_MIN_PSI -20.0f
+#define BLE_PRESSURE_MIN_PSI -250.0f
+#endif
+#ifndef BLE_PRESSURE_OFFSET_PSI
+#define BLE_PRESSURE_OFFSET_PSI 0.0f
+#endif
+#ifndef BLE_PRESSURE_OFFSET_MAX_PSI
+#define BLE_PRESSURE_OFFSET_MAX_PSI 250.0f
 #endif
 #ifndef BLE_PRESSURE_TASK_STACK
 #define BLE_PRESSURE_TASK_STACK 12288
@@ -79,7 +87,8 @@ static SemaphoreHandle_t cache_mutex = nullptr;
 static volatile bool display_dirty = false;
 
 static BlePressureReading published_reading = {
-    false, 0, 0.0f, -1, false, nullptr};
+    false, 0, 0.0f, 0.0f, -1, false, nullptr};
+static float pressure_offset_psi = BLE_PRESSURE_OFFSET_PSI;
 static bool published_has_cache = false;
 static bool published_read_fresh = false;
 static char published_error_msg[64] = "not read yet";
@@ -169,6 +178,7 @@ static bool refresh_if_stale(unsigned long max_age_ms) {
   }
 
   if (reading.ok) {
+    reading.psi = (float)lroundf(reading.sensor_psi + pressure_offset_psi);
     success_millis = now;
     const time_t now_epoch = time(nullptr);
     if (now_epoch > 100000) {
@@ -176,6 +186,10 @@ static bool refresh_if_stale(unsigned long max_age_ms) {
     }
     consecutive_failures = 0;
     publish_cache(reading, true, true, success_millis, success_epoch, nullptr);
+    if (pressure_offset_psi != 0.0f) {
+      Serial.printf("BLE pressure applied offset=%.1f -> psi=%d\n",
+                    pressure_offset_psi, (int)reading.psi);
+    }
     return true;
   }
 
@@ -210,6 +224,7 @@ static bool refresh_if_stale(unsigned long max_age_ms) {
       if (now_epoch > 100000) {
         success_epoch = now_epoch;
       }
+      reading.psi = (float)lroundf(reading.sensor_psi + pressure_offset_psi);
       publish_cache(reading, true, true, success_millis, success_epoch, nullptr);
       Serial.println("BLE pressure read recovered after stack reset");
       return true;
@@ -245,7 +260,41 @@ bool ble_pressure_enabled() {
          BLE_PRESSURE_CHAR_UUID[0] != '\0';
 }
 
+static void persist_pressure_offset(float offset) {
+  Preferences prefs;
+  if (!prefs.begin("presscfg", false)) {
+    Serial.println("BLE pressure offset persist failed");
+    return;
+  }
+  prefs.putFloat("offset", offset);
+  prefs.end();
+}
+
+static void load_pressure_offset() {
+  Preferences prefs;
+  if (!prefs.begin("presscfg", true)) {
+    pressure_offset_psi = BLE_PRESSURE_OFFSET_PSI;
+    return;
+  }
+  pressure_offset_psi = prefs.getFloat("offset", BLE_PRESSURE_OFFSET_PSI);
+  prefs.end();
+}
+
+static void apply_offset_to_published_cache() {
+  if (cache_mutex == nullptr) {
+    return;
+  }
+  xSemaphoreTake(cache_mutex, portMAX_DELAY);
+  if (published_has_cache) {
+    published_reading.psi =
+        (float)lroundf(published_reading.sensor_psi + pressure_offset_psi);
+  }
+  xSemaphoreGive(cache_mutex);
+  display_dirty = true;
+}
+
 void ble_pressure_init() {
+  load_pressure_offset();
   ble_pressure_sensor.begin(ble_pressure_config_from_build());
   if (!ble_pressure_enabled()) {
     return;
@@ -256,8 +305,8 @@ void ble_pressure_init() {
   Serial.print(BLE_PRESSURE_BIG_ENDIAN != 0 ? "big-endian" : "little-endian");
   Serial.print(" max=");
   Serial.print((int)BLE_PRESSURE_MAX_PSI);
-  Serial.print(" min=");
-  Serial.println((int)BLE_PRESSURE_MIN_PSI);
+  Serial.print(" offset=");
+  Serial.println(pressure_offset_psi, 1);
 }
 
 void ble_pressure_start_task() {
@@ -355,4 +404,42 @@ time_t ble_pressure_last_success_epoch() {
     xSemaphoreGive(cache_mutex);
   }
   return epoch;
+}
+
+float ble_pressure_offset_psi() { return pressure_offset_psi; }
+
+bool ble_pressure_set_offset(float offset_psi, const char **error_out) {
+  if (fabsf(offset_psi) > BLE_PRESSURE_OFFSET_MAX_PSI) {
+    if (error_out != nullptr) {
+      *error_out = "offset out of range";
+    }
+    return false;
+  }
+
+  pressure_offset_psi = offset_psi;
+  persist_pressure_offset(pressure_offset_psi);
+  apply_offset_to_published_cache();
+  Serial.printf("BLE pressure offset set to %.1f psi\n", pressure_offset_psi);
+  if (error_out != nullptr) {
+    *error_out = nullptr;
+  }
+  return true;
+}
+
+bool ble_pressure_zero_to_current(const char **error_out) {
+  if (!ble_pressure_enabled()) {
+    if (error_out != nullptr) {
+      *error_out = "BLE pressure sensor not configured";
+    }
+    return false;
+  }
+  if (!ble_pressure_has_cache()) {
+    if (error_out != nullptr) {
+      *error_out = "no pressure reading yet";
+    }
+    return false;
+  }
+
+  BlePressureReading reading = ble_pressure_get_cached();
+  return ble_pressure_set_offset(-reading.sensor_psi, error_out);
 }

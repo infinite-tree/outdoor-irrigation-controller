@@ -6,6 +6,7 @@ struct BlePressureReading {
   bool ok;
   uint16_t raw;
   float psi;
+  float sensor_psi;
   int battery_pct;
   bool battery_valid;
   const char *error;
@@ -49,7 +50,7 @@ struct BlePressureConfig {
         big_endian(true),
         raw_tenths_divisor(10.0f),
         psi_max(250.0f),
-        psi_min(-20.0f) {}
+        psi_min(-250.0f) {}
 };
 
 class BlePressureSensor {
